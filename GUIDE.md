@@ -67,6 +67,9 @@ screen-ai-ocr ocr photo.jpg
 Produces `photo_ocr.txt` (plain text) and `photo_ocr.json` (structured) in the
 same directory as the input file.
 
+Supported image formats: **JPG, PNG, WebP, BMP, TIFF, GIF** -- anything Pillow
+can decode.
+
 ### OCR a PDF
 
 ```bash
@@ -75,6 +78,36 @@ screen-ai-ocr ocr document.pdf
 
 Each page is rendered to an image internally and OCR'd.  The outputs contain
 all pages.
+
+### Select specific pages (PDF only)
+
+```bash
+screen-ai-ocr ocr document.pdf --pages 1          # first page only
+screen-ai-ocr ocr document.pdf --pages 1-10       # pages 1 through 10
+screen-ai-ocr ocr document.pdf --pages 1,3,5      # pages 1, 3, and 5
+screen-ai-ocr ocr document.pdf --pages 1-5,10-12  # ranges and individual pages
+```
+
+### Light mode (faster, lower quality)
+
+```bash
+screen-ai-ocr ocr scan.png --light
+```
+
+Uses a smaller model for faster inference at the cost of some accuracy.
+
+### Create a searchable PDF
+
+```bash
+screen-ai-ocr ocr document.pdf --searchable-pdf document_searchable.pdf
+```
+
+The output PDF looks identical to the input but has an invisible text layer
+overlaid, making it selectable and searchable.  Can be combined with `--pages`:
+
+```bash
+screen-ai-ocr ocr big.pdf --pages 1-50 --searchable-pdf big_searchable.pdf
+```
 
 ### Specify an output directory
 
@@ -122,11 +155,16 @@ ai = ScreenAI()
 
 The constructor auto-discovers the DLL (Chrome's directory, then the
 auto-downloaded location) and initialises the OCR pipeline.
-You can pass a custom `model_dir` if needed:
+
+Optional constructor arguments:
 
 ```python
 from pathlib import Path
-ai = ScreenAI(model_dir=Path(r"C:\custom\path\to\screen_ai\140.20"))
+
+ai = ScreenAI(
+    model_dir=Path(r"C:\custom\path\to\screen_ai\140.20"),
+    light_mode=True,   # use the smaller/faster model
+)
 ```
 
 ### OCR a file (PDF or image)
@@ -141,6 +179,27 @@ print(result.to_text())
 import json
 print(json.dumps(result.to_dict(), indent=2))
 ```
+
+### OCR specific pages of a PDF
+
+```python
+result = ai.ocr("huge.pdf", pages=range(1, 101))   # first 100 pages
+result = ai.ocr("huge.pdf", pages=[1])              # first page only
+result = ai.ocr("huge.pdf", pages=[1, 3, 5])        # pages 1, 3, 5
+```
+
+### Create a searchable PDF
+
+```python
+result = ai.ocr_to_searchable_pdf(
+    "scanned.pdf",
+    "scanned_searchable.pdf",
+    pages=range(1, 11),  # optional
+)
+```
+
+The output PDF retains the original appearance but has an invisible text
+layer overlaid, making it selectable and searchable in any PDF viewer.
 
 ### OCR a PIL Image directly
 

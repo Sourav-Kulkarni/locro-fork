@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -19,6 +20,25 @@ app = typer.Typer(
 )
 
 SUPPORTED_SUFFIXES = {".pdf", *IMAGE_SUFFIXES}
+
+
+def _parse_pages(spec: str) -> list[int]:
+    """Parse a page specification like ``1-5``, ``1,3,5``, or ``1-3,7,10-12``.
+
+    Returns a sorted list of 1-based page numbers.
+    """
+    pages: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        m = re.fullmatch(r"(\d+)\s*-\s*(\d+)", part)
+        if m:
+            lo, hi = int(m.group(1)), int(m.group(2))
+            pages.update(range(lo, hi + 1))
+        elif part.isdigit():
+            pages.add(int(part))
+        else:
+            raise typer.BadParameter(f"Invalid page spec: {part!r}")
+    return sorted(pages)
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +69,7 @@ def _write_outputs(
 def ocr(
     file: Annotated[
         Path,
-        typer.Argument(help="PDF, JPG, or PNG file to OCR."),
+        typer.Argument(help="PDF or image file to OCR."),
     ],
     output_dir: Annotated[
         Optional[Path],
@@ -59,6 +79,24 @@ def ocr(
         bool,
         typer.Option("--text", help="Print extracted text to stdout instead of writing files."),
     ] = False,
+    pages_spec: Annotated[
+        Optional[str],
+        typer.Option(
+            "--pages",
+            help="Pages to OCR (PDF only).  Examples: 1  1-10  1,3,5  1-5,10-12",
+        ),
+    ] = None,
+    light: Annotated[
+        bool,
+        typer.Option("--light", help="Use the smaller/faster OCR model."),
+    ] = False,
+    searchable_pdf: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--searchable-pdf",
+            help="Write a searchable PDF with invisible text overlay (PDF input only).",
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("-v", "--verbose", help="Verbose / debug logging."),
@@ -72,26 +110,44 @@ def ocr(
         typer.echo(f"Error: file not found: {file}", err=True)
         raise typer.Exit(code=1)
 
-    if file.suffix.lower() not in SUPPORTED_SUFFIXES:
+    suffix = file.suffix.lower()
+    if suffix not in SUPPORTED_SUFFIXES:
         typer.echo(
-            f"Error: unsupported file type '{file.suffix}' (expected PDF, JPG, or PNG)",
+            f"Error: unsupported file type '{file.suffix}' "
+            f"(expected {', '.join(sorted(SUPPORTED_SUFFIXES))})",
             err=True,
         )
         raise typer.Exit(code=1)
 
-    ai = ScreenAI()
-    result = ai.ocr(file)
+    pages = _parse_pages(pages_spec) if pages_spec else None
+
+    if pages and suffix != ".pdf":
+        typer.echo("Warning: --pages is ignored for image files.", err=True)
+        pages = None
+
+    if searchable_pdf and suffix != ".pdf":
+        typer.echo("Error: --searchable-pdf requires a PDF input.", err=True)
+        raise typer.Exit(code=1)
+
+    ai = ScreenAI(light_mode=light)
+
+    if searchable_pdf:
+        result = ai.ocr_to_searchable_pdf(file, searchable_pdf, pages=pages)
+        typer.echo(f"  Searchable PDF -> {searchable_pdf}")
+    else:
+        result = ai.ocr(file, pages=pages)
 
     page_count = len(result.pages)
     total_blocks = sum(len(p.blocks) for p in result.pages)
 
     if text:
         typer.echo(result.to_text())
-    else:
+    elif not searchable_pdf:
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
         _write_outputs(result, file, output_dir)
-        typer.echo(f"Done. {page_count} page(s), {total_blocks} block(s).")
+
+    typer.echo(f"Done. {page_count} page(s), {total_blocks} block(s).")
 
 
 # ---------------------------------------------------------------------------

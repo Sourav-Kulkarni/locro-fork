@@ -224,6 +224,9 @@ class ScreenAIDll:
     def get_max_image_dimension(self) -> int:
         return self._dll.GetMaxImageDimension()
 
+    def set_light_mode(self, enabled: bool) -> None:
+        self._dll.SetOCRLightMode(enabled)
+
     def perform_ocr(self, bgra_pixels: bytes, width: int, height: int) -> bytes | None:
         """Run OCR on raw BGRA pixel data.  Returns serialised protobuf or None."""
         bm = _make_bitmap(bgra_pixels, width, height)
