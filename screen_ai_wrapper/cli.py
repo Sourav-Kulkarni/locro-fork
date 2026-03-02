@@ -21,6 +21,11 @@ app = typer.Typer(
 SUPPORTED_SUFFIXES = {".pdf", *IMAGE_SUFFIXES}
 
 
+# ---------------------------------------------------------------------------
+# ocr
+# ---------------------------------------------------------------------------
+
+
 def _write_outputs(
     result: OcrResult, input_path: Path, output_dir: Path | None,
 ) -> None:
@@ -60,11 +65,7 @@ def ocr(
     ] = False,
 ) -> None:
     """OCR a document or image using Chrome's screen-ai."""
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(levelname)-8s %(message)s",
-    )
-    logging.getLogger("PIL").setLevel(logging.WARNING)
+    _setup_logging(verbose)
 
     file = file.resolve()
     if not file.exists():
@@ -91,6 +92,60 @@ def ocr(
             output_dir.mkdir(parents=True, exist_ok=True)
         _write_outputs(result, file, output_dir)
         typer.echo(f"Done. {page_count} page(s), {total_blocks} block(s).")
+
+
+# ---------------------------------------------------------------------------
+# download
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def download(
+    verbose: Annotated[
+        bool,
+        typer.Option("-v", "--verbose", help="Verbose / debug logging."),
+    ] = False,
+    model_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--model-dir",
+            help="Directory to store the component (default: %%LOCALAPPDATA%%/screen_ai_wrapper).",
+        ),
+    ] = None,
+) -> None:
+    """Install the screen-ai component (DLL + models).
+
+    Copies from Chrome's local component directory so the wrapper works
+    independently of Chrome afterwards.  Chrome must have downloaded the
+    Screen AI component at least once (chrome://components).
+    """
+    _setup_logging(verbose)
+
+    from ._download import download_component
+
+    try:
+        result_dir = download_component(target_dir=model_dir)
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    except RuntimeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+
+    typer.echo(f"Installed to {result_dir}")
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def _setup_logging(verbose: bool) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(levelname)-8s %(message)s",
+    )
+    logging.getLogger("PIL").setLevel(logging.WARNING)
 
 
 def main() -> None:

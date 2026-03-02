@@ -4,22 +4,7 @@
 
 1. **Windows 10/11 (64-bit)** -- the wrapper calls `chrome_screen_ai.dll` which is a Windows DLL.
 
-2. **Google Chrome installed** -- the DLL and its model files ship as a Chrome
-   component.  Chrome downloads them automatically; you just need to have
-   Chrome installed and to have opened it at least once.
-
-3. **Python 3.12+**.
-
-### Verifying the screen-ai component
-
-The DLL lives under Chrome's user-data directory:
-
-```
-%LOCALAPPDATA%\Google\Chrome\User Data\screen_ai\<version>\chrome_screen_ai.dll
-```
-
-If that path doesn't exist, open Chrome, visit `chrome://components`, find
-**Screen AI** and click *Check for update*.
+2. **Python 3.12+**.
 
 ## Installation
 
@@ -34,6 +19,41 @@ pip install -e .
 This installs the `screen-ai-ocr` command and the `screen_ai_wrapper` Python
 package along with all dependencies (Pillow, PyMuPDF, typer).
 
+## Getting the screen-ai component
+
+The DLL and ML models (~107 MB) need to be available before OCR will work.
+
+### Option A: Use Chrome's component directly (zero setup)
+
+If Chrome is installed and has already downloaded the Screen AI component,
+the wrapper finds it automatically at:
+
+```
+%LOCALAPPDATA%\Google\Chrome\User Data\screen_ai\<version>\chrome_screen_ai.dll
+```
+
+If that path doesn't exist, open Chrome, visit `chrome://components`, find
+**Screen AI** and click *Check for update*.
+
+### Option B: Copy from Chrome (standalone)
+
+```bash
+screen-ai-ocr download
+```
+
+This copies the DLL and model files from Chrome's local directory into the
+package's own directory (`%LOCALAPPDATA%\screen_ai_wrapper\<version>\`).
+After this, Chrome can be removed and the wrapper will continue to work.
+
+You can specify a custom destination:
+
+```bash
+screen-ai-ocr download --model-dir C:\my\models
+```
+
+The wrapper checks Chrome's directory first, then falls back to the
+copied/downloaded location.
+
 ## CLI usage
 
 After installation the `screen-ai-ocr` command is available on your PATH.
@@ -41,7 +61,7 @@ After installation the `screen-ai-ocr` command is available on your PATH.
 ### OCR an image
 
 ```bash
-screen-ai-ocr photo.jpg
+screen-ai-ocr ocr photo.jpg
 ```
 
 Produces `photo_ocr.txt` (plain text) and `photo_ocr.json` (structured) in the
@@ -50,7 +70,7 @@ same directory as the input file.
 ### OCR a PDF
 
 ```bash
-screen-ai-ocr document.pdf
+screen-ai-ocr ocr document.pdf
 ```
 
 Each page is rendered to an image internally and OCR'd.  The outputs contain
@@ -59,30 +79,40 @@ all pages.
 ### Specify an output directory
 
 ```bash
-screen-ai-ocr scan.png -o results/
+screen-ai-ocr ocr scan.png -o results/
 ```
 
 ### Print text to stdout
 
 ```bash
-screen-ai-ocr scan.png --text
+screen-ai-ocr ocr scan.png --text
 ```
 
 Useful for piping into other tools:
 
 ```bash
-screen-ai-ocr invoice.pdf --text | grep "Total"
+screen-ai-ocr ocr invoice.pdf --text | grep "Total"
 ```
 
 ### Verbose logging
 
 ```bash
-screen-ai-ocr document.pdf -v
+screen-ai-ocr ocr document.pdf -v
 ```
 
 Shows DLL loading, image resize, and per-page statistics.
 
 ## Library / API usage
+
+### Copying the component programmatically
+
+```python
+from screen_ai_wrapper import download_component
+
+model_dir = download_component()  # copies from Chrome, returns Path
+```
+
+### Initialising the OCR engine
 
 ```python
 from screen_ai_wrapper import ScreenAI
@@ -90,7 +120,8 @@ from screen_ai_wrapper import ScreenAI
 ai = ScreenAI()
 ```
 
-The constructor auto-discovers the DLL and initialises the OCR pipeline.
+The constructor auto-discovers the DLL (Chrome's directory, then the
+auto-downloaded location) and initialises the OCR pipeline.
 You can pass a custom `model_dir` if needed:
 
 ```python

@@ -9,8 +9,9 @@ Supports PDFs (multi-page) and images (JPG, PNG).
 
 ```bash
 pip install -e .
-screen-ai-ocr document.pdf
-screen-ai-ocr photo.jpg --text
+screen-ai-ocr download            # one-time: fetch DLL + models from Google
+screen-ai-ocr ocr document.pdf
+screen-ai-ocr ocr photo.jpg --text
 ```
 
 See [GUIDE.md](GUIDE.md) for full installation, CLI, and API documentation.

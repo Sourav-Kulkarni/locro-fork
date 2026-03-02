@@ -21,8 +21,13 @@ log = logging.getLogger(__name__)
 
 
 def find_screen_ai_dir() -> Path:
-    """Find the screen-ai component directory under Chrome's user data."""
-    base = (
+    """Find the screen-ai component directory.
+
+    Checks Chrome's user-data directory first, then falls back to the
+    package's own download directory (populated by ``screen-ai-ocr download``).
+    """
+    # 1. Chrome's component directory
+    chrome_base = (
         Path.home()
         / "AppData"
         / "Local"
@@ -31,14 +36,23 @@ def find_screen_ai_dir() -> Path:
         / "User Data"
         / "screen_ai"
     )
-    if not base.exists():
-        raise FileNotFoundError(f"screen_ai directory not found at {base}")
+    if chrome_base.exists():
+        for v in sorted(chrome_base.iterdir(), reverse=True):
+            if (v / "chrome_screen_ai.dll").exists():
+                return v
 
-    for v in sorted(base.iterdir(), reverse=True):
-        if (v / "chrome_screen_ai.dll").exists():
-            return v
+    # 2. Package's own download directory
+    from ._download import find_local_model_dir
 
-    raise FileNotFoundError("No chrome_screen_ai.dll found in any version directory")
+    local = find_local_model_dir()
+    if local is not None:
+        return local
+
+    raise FileNotFoundError(
+        "screen-ai component not found.\n"
+        "  Run:  screen-ai-ocr download\n"
+        "  Or install Chrome and visit chrome://components to trigger download."
+    )
 
 
 # ---------------------------------------------------------------------------
