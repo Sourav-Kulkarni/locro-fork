@@ -357,11 +357,11 @@ Coordinates in the bounding boxes are in pixels, relative to the image that was 
 
 1. **Max image dimension**: Both width and height must be <= 2048 pixels (from `GetMaxImageDimension()`). Images larger than this must be downscaled before calling `PerformOCR`.
 
-2. **Pixel format**: The DLL expects BGRA_8888 (`kN32_SkColorType` on Windows = value 6). RGBA or RGB images must be converted.
+2. **Pixel format**: The library expects BGRA_8888 (`kN32_SkColorType` on little-endian platforms = value 6). RGBA or RGB images must be converted. This value is the same on both Windows and Linux x86-64 (both are little-endian).
 
-3. **Windows only**: The DLL is a Windows PE binary. On Linux/macOS, Chrome distributes a `.so`/`.dylib` with the same exports but potentially different struct layouts.
+3. **Windows and Linux (x86-64)**: On Windows, the library is `chrome_screen_ai.dll`; on Linux, it is `libchromescreenai.so`. The exported function names, protobuf format, and SkBitmap struct layout are identical across both platforms (same Clang compiler, same struct packing for POD types on 64-bit). The struct layout was empirically verified on Windows; if the Linux `.so` gives unexpected errors (e.g., `Unsupported color type`), the same debugging technique described above can be used to re-verify the field offsets. macOS (`.dylib`) is untested.
 
-4. **Version coupling**: The SkBitmap layout is tied to the specific Skia version compiled into the DLL. A Chrome update that ships a new `chrome_screen_ai.dll` could change the struct layout and break the integration. The empirical layout determination process would need to be repeated.
+4. **Version coupling**: The SkBitmap layout is tied to the specific Skia version compiled into the library. A Chrome update that ships a new library could change the struct layout and break the integration. The empirical layout determination process would need to be repeated.
 
 5. **Thread safety**: The DLL spawns its own worker threads for TFLite inference. Multiple concurrent `PerformOCR` calls from the host are not tested and may not be safe.
 

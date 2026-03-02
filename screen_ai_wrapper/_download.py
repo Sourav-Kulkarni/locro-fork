@@ -1,4 +1,4 @@
-"""Download / install the screen-ai component (DLL + models).
+"""Download / install the screen-ai component (library + models).
 
 Two strategies:
 
@@ -16,14 +16,17 @@ from __future__ import annotations
 
 import io
 import logging
-import os
+import platform
 import shutil
+import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+from ._platform import LIB_NAME, chrome_component_bases, default_model_dir
 
 log = logging.getLogger(__name__)
 
@@ -38,10 +41,7 @@ UPDATE_URL = "https://update.googleapis.com/service/update2"
 
 def get_default_model_dir() -> Path:
     """Base directory for downloaded / copied models."""
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        return Path(local) / "screen_ai_wrapper"
-    return Path.home() / ".screen_ai_wrapper"
+    return default_model_dir()
 
 
 def find_local_model_dir() -> Path | None:
@@ -50,27 +50,19 @@ def find_local_model_dir() -> Path | None:
     if not base.exists():
         return None
     for v in sorted(base.iterdir(), reverse=True):
-        if v.is_dir() and (v / "chrome_screen_ai.dll").exists():
+        if v.is_dir() and (v / LIB_NAME).exists():
             return v
     return None
 
 
 def _find_chrome_component_dir() -> Path | None:
     """Find screen-ai inside Chrome's user-data directory."""
-    base = (
-        Path.home()
-        / "AppData"
-        / "Local"
-        / "Google"
-        / "Chrome"
-        / "User Data"
-        / "screen_ai"
-    )
-    if not base.exists():
-        return None
-    for v in sorted(base.iterdir(), reverse=True):
-        if v.is_dir() and (v / "chrome_screen_ai.dll").exists():
-            return v
+    for base in chrome_component_bases():
+        if not base.exists():
+            continue
+        for v in sorted(base.iterdir(), reverse=True):
+            if v.is_dir() and (v / LIB_NAME).exists():
+                return v
     return None
 
 
@@ -98,7 +90,7 @@ def copy_from_chrome(target_dir: Path | None = None) -> Path:
     base = target_dir or get_default_model_dir()
     dest = base / version
 
-    if (dest / "chrome_screen_ai.dll").exists():
+    if (dest / LIB_NAME).exists():
         log.info("Already installed at %s", dest)
         return dest
 
@@ -121,18 +113,26 @@ class UpdateInfo:
     sha256: str
 
 
+def _omaha_platform() -> tuple[str, str]:
+    """Return (platform, os_version) for the Omaha request."""
+    if sys.platform == "win32":
+        return "win", platform.version()
+    return "linux", platform.release()
+
+
 def check_for_update() -> UpdateInfo:
     """Query Google's update server for the latest screen-ai version.
 
     Note: Google currently targets this component only to Chrome clients,
     so this may raise RuntimeError("noupdate").
     """
+    plat, os_ver = _omaha_platform()
     request_body = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<request protocol="3.1" updater="chromium"'
         ' prodversion="130.0.6723.91" ismachine="0" dedup="cr"'
         ' acceptformat="crx2,crx3">'
-        '<os platform="win" version="10.0.19045" arch="x86_64"/>'
+        f'<os platform="{plat}" version="{os_ver}" arch="x86_64"/>'
         f'<app appid="{COMPONENT_ID}" version="0.0.0.0"'
         ' installsource="ondemand">'
         "<updatecheck/>"
@@ -199,9 +199,9 @@ def download_from_server(
 
     base = target_dir or get_default_model_dir()
     version_dir = base / info.version
-    dll_path = version_dir / "chrome_screen_ai.dll"
+    lib_path = version_dir / LIB_NAME
 
-    if dll_path.exists():
+    if lib_path.exists():
         log.info("Already installed at %s", version_dir)
         return version_dir
 
@@ -227,9 +227,9 @@ def download_from_server(
     with zipfile.ZipFile(io.BytesIO(bytes(data))) as zf:
         zf.extractall(version_dir)
 
-    if not dll_path.exists():
+    if not lib_path.exists():
         raise RuntimeError(
-            f"Extraction finished but chrome_screen_ai.dll not found in {version_dir}"
+            f"Extraction finished but {LIB_NAME} not found in {version_dir}"
         )
 
     log.info("Installed screen-ai %s", info.version)
@@ -247,7 +247,7 @@ def download_component(target_dir: Path | None = None) -> Path:
     1. Copies from Chrome's local directory if available.
     2. Falls back to Omaha download (may fail due to server restrictions).
 
-    Returns the path to the version directory containing the DLL.
+    Returns the path to the version directory containing the library.
     """
     # Try copying from Chrome first
     try:

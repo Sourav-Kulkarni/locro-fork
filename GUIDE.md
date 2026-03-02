@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-1. **Windows 10/11 (64-bit)** -- the wrapper calls `chrome_screen_ai.dll` which is a Windows DLL.
+1. **Windows 10/11 (64-bit)** or **Linux (64-bit x86)**.
 
 2. **Python 3.12+**.
 
@@ -21,18 +21,28 @@ package along with all dependencies (Pillow, PyMuPDF, typer).
 
 ## Getting the screen-ai component
 
-The DLL and ML models (~107 MB) need to be available before OCR will work.
+The shared library and ML models (~107 MB on Windows, ~255 MB on Linux) need
+to be available before OCR will work.
 
 ### Option A: Use Chrome's component directly (zero setup)
 
-If Chrome is installed and has already downloaded the Screen AI component,
-the wrapper finds it automatically at:
+If Chrome (or Chromium) is installed and has already downloaded the Screen AI
+component, the wrapper finds it automatically.
+
+**Windows:**
 
 ```
 %LOCALAPPDATA%\Google\Chrome\User Data\screen_ai\<version>\chrome_screen_ai.dll
 ```
 
-If that path doesn't exist, open Chrome, visit `chrome://components`, find
+**Linux:**
+
+```
+~/.config/google-chrome/screen_ai/<version>/libchromescreenai.so
+~/.config/chromium/screen_ai/<version>/libchromescreenai.so
+```
+
+If the path doesn't exist, open Chrome, visit `chrome://components`, find
 **Screen AI** and click *Check for update*.
 
 ### Option B: Copy from Chrome (standalone)
@@ -41,14 +51,18 @@ If that path doesn't exist, open Chrome, visit `chrome://components`, find
 screen-ai-ocr download
 ```
 
-This copies the DLL and model files from Chrome's local directory into the
-package's own directory (`%LOCALAPPDATA%\screen_ai_wrapper\<version>\`).
-After this, Chrome can be removed and the wrapper will continue to work.
+This copies the library and model files from Chrome's local directory into the
+package's own directory so the wrapper works independently of Chrome.
+
+| Platform | Default destination |
+|----------|---------------------|
+| Windows  | `%LOCALAPPDATA%\screen_ai_wrapper\<version>\` |
+| Linux    | `~/.local/share/screen_ai_wrapper/<version>/` |
 
 You can specify a custom destination:
 
 ```bash
-screen-ai-ocr download --model-dir C:\my\models
+screen-ai-ocr download --model-dir /path/to/models
 ```
 
 The wrapper checks Chrome's directory first, then falls back to the
@@ -133,7 +147,7 @@ screen-ai-ocr ocr invoice.pdf --text | grep "Total"
 screen-ai-ocr ocr document.pdf -v
 ```
 
-Shows DLL loading, image resize, and per-page statistics.
+Shows library loading, image resize, and per-page statistics.
 
 ## Library / API usage
 
@@ -153,8 +167,8 @@ from screen_ai_wrapper import ScreenAI
 ai = ScreenAI()
 ```
 
-The constructor auto-discovers the DLL (Chrome's directory, then the
-auto-downloaded location) and initialises the OCR pipeline.
+The constructor auto-discovers the library (Chrome's directory, then the
+locally-copied location) and initialises the OCR pipeline.
 
 Optional constructor arguments:
 
@@ -162,7 +176,7 @@ Optional constructor arguments:
 from pathlib import Path
 
 ai = ScreenAI(
-    model_dir=Path(r"C:\custom\path\to\screen_ai\140.20"),
+    model_dir=Path("/path/to/screen_ai/140.20"),
     light_mode=True,   # use the smaller/faster model
 )
 ```
@@ -278,5 +292,5 @@ newlines.
 ```
 
 Bounding-box coordinates are in pixels, relative to the image that was actually
-OCR'd (which may have been resized to fit within the DLL's maximum dimension).
+OCR'd (which may have been resized to fit within the library's maximum dimension).
 The page's `width` and `height` reflect this OCR'd size.

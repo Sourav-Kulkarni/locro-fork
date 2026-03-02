@@ -21,7 +21,7 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif", ".g
 class ScreenAI:
     """Direct interface to Chrome's screen-ai OCR.
 
-    Loads ``chrome_screen_ai.dll`` via ctypes -- no browser needed.
+    Loads the screen-ai shared library via ctypes -- no browser needed.
 
     >>> ai = ScreenAI()
     >>> result = ai.ocr("scan.pdf")
@@ -148,7 +148,7 @@ class ScreenAI:
     def _perform_ocr(
         self, img: Image.Image,
     ) -> tuple[list[LineResult], tuple[int, int]]:
-        """Resize, convert to BGRA, call DLL, parse protobuf."""
+        """Resize, convert to BGRA, call library, parse protobuf."""
         w, h = img.size
         if max(w, h) > self._max_dim:
             scale = self._max_dim / max(w, h)

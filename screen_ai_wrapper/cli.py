@@ -10,12 +10,13 @@ from typing import Annotated, Optional
 
 import typer
 
+from ._platform import default_model_dir_display
 from .models import OcrResult
 from .ocr import IMAGE_SUFFIXES, ScreenAI
 
 app = typer.Typer(
     name="screen-ai-ocr",
-    help="OCR documents and images using Chrome's screen-ai DLL.",
+    help="OCR documents and images using Chrome's screen-ai library.",
     add_completion=False,
 )
 
@@ -165,11 +166,11 @@ def download(
         Optional[Path],
         typer.Option(
             "--model-dir",
-            help="Directory to store the component (default: %%LOCALAPPDATA%%/screen_ai_wrapper).",
+            help=f"Directory to store the component (default: {default_model_dir_display()}).",
         ),
     ] = None,
 ) -> None:
-    """Install the screen-ai component (DLL + models).
+    """Install the screen-ai component (library + models).
 
     Copies from Chrome's local component directory so the wrapper works
     independently of Chrome afterwards.  Chrome must have downloaded the

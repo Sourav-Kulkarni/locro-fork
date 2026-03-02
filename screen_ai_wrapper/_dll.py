@@ -1,6 +1,6 @@
-"""Low-level interface to chrome_screen_ai.dll.
+"""Low-level interface to the screen-ai shared library.
 
-Handles DLL discovery, model-file callbacks, SkBitmap struct layout,
+Handles library discovery, model-file callbacks, SkBitmap struct layout,
 and the raw ``PerformOCR`` call.  Everything here is an implementation
 detail -- the public API lives in :mod:`screen_ai_wrapper.ocr`.
 
@@ -13,10 +13,12 @@ import ctypes
 import logging
 from pathlib import Path
 
+from ._platform import LIB_NAME, chrome_component_bases
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# DLL location
+# Library location
 # ---------------------------------------------------------------------------
 
 
@@ -26,19 +28,12 @@ def find_screen_ai_dir() -> Path:
     Checks Chrome's user-data directory first, then falls back to the
     package's own download directory (populated by ``screen-ai-ocr download``).
     """
-    # 1. Chrome's component directory
-    chrome_base = (
-        Path.home()
-        / "AppData"
-        / "Local"
-        / "Google"
-        / "Chrome"
-        / "User Data"
-        / "screen_ai"
-    )
-    if chrome_base.exists():
-        for v in sorted(chrome_base.iterdir(), reverse=True):
-            if (v / "chrome_screen_ai.dll").exists():
+    # 1. Chrome / Chromium component directory
+    for base in chrome_component_bases():
+        if not base.exists():
+            continue
+        for v in sorted(base.iterdir(), reverse=True):
+            if (v / LIB_NAME).exists():
                 return v
 
     # 2. Package's own download directory
@@ -56,7 +51,7 @@ def find_screen_ai_dir() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# File-content callbacks (the DLL reads model files through these)
+# File-content callbacks (the library reads model files through these)
 # ---------------------------------------------------------------------------
 
 _model_dir: Path | None = None
@@ -99,10 +94,10 @@ def _get_file_content_cb(
 
 
 # ---------------------------------------------------------------------------
-# SkBitmap struct layout (64-bit Windows, Chrome component v140)
+# SkBitmap struct layout (64-bit x86, Chrome component v140)
 # ---------------------------------------------------------------------------
 
-_kBGRA_8888 = 6  # SkColorType  (kN32 on Windows)
+_kBGRA_8888 = 6  # SkColorType  (kN32 on little-endian)
 _kPremul = 2  # SkAlphaType
 
 
@@ -171,23 +166,23 @@ def _make_bitmap(pixels: bytes, width: int, height: int) -> _SkBitmap:
 
 
 # ---------------------------------------------------------------------------
-# DLL wrapper
+# Library wrapper
 # ---------------------------------------------------------------------------
 
 
 class ScreenAIDll:
-    """Thin wrapper around chrome_screen_ai.dll exports."""
+    """Thin wrapper around screen-ai library exports."""
 
     def __init__(self, model_dir: Path):
         global _model_dir
         _model_dir = model_dir
 
-        dll_path = model_dir / "chrome_screen_ai.dll"
-        if not dll_path.exists():
-            raise FileNotFoundError(f"DLL not found: {dll_path}")
+        lib_path = model_dir / LIB_NAME
+        if not lib_path.exists():
+            raise FileNotFoundError(f"Library not found: {lib_path}")
 
-        log.info("Loading %s", dll_path)
-        self._dll = ctypes.CDLL(str(dll_path))
+        log.info("Loading %s", lib_path)
+        self._dll = ctypes.CDLL(str(lib_path))
         self._bind()
 
     def _bind(self):
