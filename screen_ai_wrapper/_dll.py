@@ -1,0 +1,225 @@
+"""Low-level interface to chrome_screen_ai.dll.
+
+Handles DLL discovery, model-file callbacks, SkBitmap struct layout,
+and the raw ``PerformOCR`` call.  Everything here is an implementation
+detail -- the public API lives in :mod:`screen_ai_wrapper.ocr`.
+
+See ``CHROME_SCREEN_AI_DLL.md`` for how the struct layout was determined.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import logging
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# DLL location
+# ---------------------------------------------------------------------------
+
+
+def find_screen_ai_dir() -> Path:
+    """Find the screen-ai component directory under Chrome's user data."""
+    base = (
+        Path.home()
+        / "AppData"
+        / "Local"
+        / "Google"
+        / "Chrome"
+        / "User Data"
+        / "screen_ai"
+    )
+    if not base.exists():
+        raise FileNotFoundError(f"screen_ai directory not found at {base}")
+
+    for v in sorted(base.iterdir(), reverse=True):
+        if (v / "chrome_screen_ai.dll").exists():
+            return v
+
+    raise FileNotFoundError("No chrome_screen_ai.dll found in any version directory")
+
+
+# ---------------------------------------------------------------------------
+# File-content callbacks (the DLL reads model files through these)
+# ---------------------------------------------------------------------------
+
+_model_dir: Path | None = None
+_file_cache: dict[str, bytes] = {}
+
+_GetFileSizeFn = ctypes.CFUNCTYPE(ctypes.c_uint32, ctypes.c_char_p)
+_GetFileContentFn = ctypes.CFUNCTYPE(
+    None, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_void_p
+)
+
+
+def _read_model_file(relative_path: str) -> bytes:
+    if relative_path in _file_cache:
+        return _file_cache[relative_path]
+    assert _model_dir is not None
+    full_path = _model_dir / relative_path
+    if not full_path.exists():
+        log.warning("Model file not found: %s", full_path)
+        return b""
+    data = full_path.read_bytes()
+    _file_cache[relative_path] = data
+    log.debug("Read model file: %s (%d bytes)", relative_path, len(data))
+    return data
+
+
+@_GetFileSizeFn
+def _get_file_size_cb(path: ctypes.c_char_p) -> int:
+    s = path.decode("utf-8") if isinstance(path, bytes) else path
+    return len(_read_model_file(s))
+
+
+@_GetFileContentFn
+def _get_file_content_cb(
+    path: ctypes.c_char_p, buf_size: int, buf: ctypes.c_void_p
+) -> None:
+    s = path.decode("utf-8") if isinstance(path, bytes) else path
+    data = _read_model_file(s)
+    n = min(len(data), buf_size)
+    ctypes.memmove(buf, data[:n], n)
+
+
+# ---------------------------------------------------------------------------
+# SkBitmap struct layout (64-bit Windows, Chrome component v140)
+# ---------------------------------------------------------------------------
+
+_kBGRA_8888 = 6  # SkColorType  (kN32 on Windows)
+_kPremul = 2  # SkAlphaType
+
+
+class _SkImageInfo(ctypes.Structure):
+    _fields_ = [
+        ("fColorSpace", ctypes.c_void_p),
+        ("fColorType", ctypes.c_int32),
+        ("fAlphaType", ctypes.c_int32),
+        ("fWidth", ctypes.c_int32),
+        ("fHeight", ctypes.c_int32),
+    ]
+
+
+class _SkPixmap(ctypes.Structure):
+    _fields_ = [
+        ("fPixels", ctypes.c_void_p),
+        ("fRowBytes", ctypes.c_size_t),
+        ("fInfo", _SkImageInfo),
+    ]
+
+
+class _SkBitmap(ctypes.Structure):
+    _fields_ = [
+        ("fPixelRef", ctypes.c_void_p),
+        ("fPixmap", _SkPixmap),
+        ("fFlags", ctypes.c_uint8),
+    ]
+
+
+class _FakeSkPixelRef(ctypes.Structure):
+    """Stub so SkBitmap::isNull() returns false."""
+
+    _fields_ = [
+        ("vtable_ptr", ctypes.c_void_p),
+        ("refcount", ctypes.c_int32),
+        ("_pad", ctypes.c_int32),
+        ("fWidth", ctypes.c_int32),
+        ("fHeight", ctypes.c_int32),
+        ("fPixels", ctypes.c_void_p),
+        ("fRowBytes", ctypes.c_size_t),
+        ("_extra", ctypes.c_uint8 * 64),
+    ]
+
+
+_FAKE_VTABLE = (ctypes.c_void_p * 16)()
+
+
+def _make_bitmap(pixels: bytes, width: int, height: int) -> _SkBitmap:
+    """Create an SkBitmap struct from raw BGRA pixel data."""
+    row_bytes = width * 4
+    pixel_buf = ctypes.create_string_buffer(pixels, len(pixels))
+    addr = ctypes.addressof(pixel_buf)
+
+    info = _SkImageInfo(
+        fColorSpace=0, fColorType=_kBGRA_8888, fAlphaType=_kPremul,
+        fWidth=width, fHeight=height,
+    )
+    pixmap = _SkPixmap(fPixels=addr, fRowBytes=row_bytes, fInfo=info)
+    pxref = _FakeSkPixelRef(
+        vtable_ptr=ctypes.addressof(_FAKE_VTABLE), refcount=1,
+        fWidth=width, fHeight=height, fPixels=addr, fRowBytes=row_bytes,
+    )
+    bm = _SkBitmap(fPixelRef=ctypes.addressof(pxref), fPixmap=pixmap, fFlags=0)
+    bm._prevent_gc = (pixel_buf, pxref)  # prevent GC
+    return bm
+
+
+# ---------------------------------------------------------------------------
+# DLL wrapper
+# ---------------------------------------------------------------------------
+
+
+class ScreenAIDll:
+    """Thin wrapper around chrome_screen_ai.dll exports."""
+
+    def __init__(self, model_dir: Path):
+        global _model_dir
+        _model_dir = model_dir
+
+        dll_path = model_dir / "chrome_screen_ai.dll"
+        if not dll_path.exists():
+            raise FileNotFoundError(f"DLL not found: {dll_path}")
+
+        log.info("Loading %s", dll_path)
+        self._dll = ctypes.CDLL(str(dll_path))
+        self._bind()
+
+    def _bind(self):
+        d = self._dll
+        d.GetLibraryVersion.argtypes = [ctypes.POINTER(ctypes.c_uint32)] * 2
+        d.GetLibraryVersion.restype = None
+        d.SetFileContentFunctions.argtypes = [_GetFileSizeFn, _GetFileContentFn]
+        d.SetFileContentFunctions.restype = None
+        d.EnableDebugMode.argtypes = []
+        d.EnableDebugMode.restype = None
+        d.InitOCRUsingCallback.argtypes = []
+        d.InitOCRUsingCallback.restype = ctypes.c_bool
+        d.SetOCRLightMode.argtypes = [ctypes.c_bool]
+        d.SetOCRLightMode.restype = None
+        d.GetMaxImageDimension.argtypes = []
+        d.GetMaxImageDimension.restype = ctypes.c_uint32
+        d.PerformOCR.argtypes = [
+            ctypes.POINTER(_SkBitmap), ctypes.POINTER(ctypes.c_uint32),
+        ]
+        d.PerformOCR.restype = ctypes.c_void_p
+        d.FreeLibraryAllocatedCharArray.argtypes = [ctypes.c_void_p]
+        d.FreeLibraryAllocatedCharArray.restype = None
+
+    def get_version(self) -> tuple[int, int]:
+        major, minor = ctypes.c_uint32(), ctypes.c_uint32()
+        self._dll.GetLibraryVersion(ctypes.byref(major), ctypes.byref(minor))
+        return major.value, minor.value
+
+    def init_ocr(self) -> bool:
+        self._dll.SetFileContentFunctions(_get_file_size_cb, _get_file_content_cb)
+        log.info("Initializing OCR pipeline...")
+        return bool(self._dll.InitOCRUsingCallback())
+
+    def get_max_image_dimension(self) -> int:
+        return self._dll.GetMaxImageDimension()
+
+    def perform_ocr(self, bgra_pixels: bytes, width: int, height: int) -> bytes | None:
+        """Run OCR on raw BGRA pixel data.  Returns serialised protobuf or None."""
+        bm = _make_bitmap(bgra_pixels, width, height)
+        out_len = ctypes.c_uint32(0)
+        log.info("PerformOCR %dx%d ...", width, height)
+        ptr = self._dll.PerformOCR(ctypes.byref(bm), ctypes.byref(out_len))
+        if not ptr:
+            log.warning("PerformOCR returned null")
+            return None
+        data = ctypes.string_at(ptr, out_len.value)
+        self._dll.FreeLibraryAllocatedCharArray(ptr)
+        log.info("PerformOCR returned %d bytes", len(data))
+        return data
