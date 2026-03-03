@@ -1,4 +1,4 @@
-"""CLI for screen-ai-wrapper, powered by Typer."""
+"""CLI for locro, powered by Typer."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .models import OcrResult
 from .ocr import IMAGE_SUFFIXES, ScreenAI
 
 app = typer.Typer(
-    name="screen-ai-ocr",
+    name="locro",
     help="OCR documents and images using Chrome's screen-ai library.",
     add_completion=False,
 )

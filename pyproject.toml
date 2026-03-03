@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "screen-ai-wrapper"
+name = "locro"
 version = "0.1.0"
 description = "Python wrapper for Chrome's screen-ai OCR (calls the DLL directly, no browser needed)"
 readme = "README.md"
@@ -17,4 +17,4 @@ dependencies = [
 ]
 
 [project.scripts]
-screen-ai-ocr = "screen_ai_wrapper.cli:main"
+locro = "locro.cli:main"

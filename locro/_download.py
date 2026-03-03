@@ -160,7 +160,7 @@ def check_for_update() -> UpdateInfo:
         raise RuntimeError(
             "Google's server returned 'noupdate' for this component.\n"
             "The screen-ai component is currently only served to Chrome.\n"
-            "Use 'screen-ai-ocr download' to copy from a local Chrome install."
+            "Use 'locro download' to copy from a local Chrome install."
         )
     if status != "ok":
         raise RuntimeError(f"Update check failed: status={status}")

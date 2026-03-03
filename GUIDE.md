@@ -1,4 +1,4 @@
-# screen-ai-wrapper -- Usage Guide
+# locro -- Usage Guide
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ cd screen-ai-wrapper
 pip install -e .
 ```
 
-This installs the `screen-ai-ocr` command and the `screen_ai_wrapper` Python
+This installs the `locro` command and the `locro` Python
 package along with all dependencies (Pillow, PyMuPDF, typer).
 
 ## Getting the screen-ai component
@@ -48,7 +48,7 @@ If the path doesn't exist, open Chrome, visit `chrome://components`, find
 ### Option B: Copy from Chrome (standalone)
 
 ```bash
-screen-ai-ocr download
+locro download
 ```
 
 This copies the library and model files from Chrome's local directory into the
@@ -56,13 +56,13 @@ package's own directory so the wrapper works independently of Chrome.
 
 | Platform | Default destination |
 |----------|---------------------|
-| Windows  | `%LOCALAPPDATA%\screen_ai_wrapper\<version>\` |
-| Linux    | `~/.local/share/screen_ai_wrapper/<version>/` |
+| Windows  | `%LOCALAPPDATA%\locro\<version>\` |
+| Linux    | `~/.local/share/locro/<version>/` |
 
 You can specify a custom destination:
 
 ```bash
-screen-ai-ocr download --model-dir /path/to/models
+locro download --model-dir /path/to/models
 ```
 
 The wrapper checks Chrome's directory first, then falls back to the
@@ -70,12 +70,12 @@ copied/downloaded location.
 
 ## CLI usage
 
-After installation the `screen-ai-ocr` command is available on your PATH.
+After installation the `locro` command is available on your PATH.
 
 ### OCR an image
 
 ```bash
-screen-ai-ocr ocr photo.jpg
+locro ocr photo.jpg
 ```
 
 Produces `photo_ocr.txt` (plain text) and `photo_ocr.json` (structured) in the
@@ -87,7 +87,7 @@ can decode.
 ### OCR a PDF
 
 ```bash
-screen-ai-ocr ocr document.pdf
+locro ocr document.pdf
 ```
 
 Each page is rendered to an image internally and OCR'd.  The outputs contain
@@ -96,16 +96,16 @@ all pages.
 ### Select specific pages (PDF only)
 
 ```bash
-screen-ai-ocr ocr document.pdf --pages 1          # first page only
-screen-ai-ocr ocr document.pdf --pages 1-10       # pages 1 through 10
-screen-ai-ocr ocr document.pdf --pages 1,3,5      # pages 1, 3, and 5
-screen-ai-ocr ocr document.pdf --pages 1-5,10-12  # ranges and individual pages
+locro ocr document.pdf --pages 1          # first page only
+locro ocr document.pdf --pages 1-10       # pages 1 through 10
+locro ocr document.pdf --pages 1,3,5      # pages 1, 3, and 5
+locro ocr document.pdf --pages 1-5,10-12  # ranges and individual pages
 ```
 
 ### Light mode (faster, lower quality)
 
 ```bash
-screen-ai-ocr ocr scan.png --light
+locro ocr scan.png --light
 ```
 
 Uses a smaller model for faster inference at the cost of some accuracy.
@@ -113,38 +113,38 @@ Uses a smaller model for faster inference at the cost of some accuracy.
 ### Create a searchable PDF
 
 ```bash
-screen-ai-ocr ocr document.pdf --searchable-pdf document_searchable.pdf
+locro ocr document.pdf --searchable-pdf document_searchable.pdf
 ```
 
 The output PDF looks identical to the input but has an invisible text layer
 overlaid, making it selectable and searchable.  Can be combined with `--pages`:
 
 ```bash
-screen-ai-ocr ocr big.pdf --pages 1-50 --searchable-pdf big_searchable.pdf
+locro ocr big.pdf --pages 1-50 --searchable-pdf big_searchable.pdf
 ```
 
 ### Specify an output directory
 
 ```bash
-screen-ai-ocr ocr scan.png -o results/
+locro ocr scan.png -o results/
 ```
 
 ### Print text to stdout
 
 ```bash
-screen-ai-ocr ocr scan.png --text
+locro ocr scan.png --text
 ```
 
 Useful for piping into other tools:
 
 ```bash
-screen-ai-ocr ocr invoice.pdf --text | grep "Total"
+locro ocr invoice.pdf --text | grep "Total"
 ```
 
 ### Verbose logging
 
 ```bash
-screen-ai-ocr ocr document.pdf -v
+locro ocr document.pdf -v
 ```
 
 Shows library loading, image resize, and per-page statistics.
@@ -154,7 +154,7 @@ Shows library loading, image resize, and per-page statistics.
 ### Copying the component programmatically
 
 ```python
-from screen_ai_wrapper import download_component
+from locro import download_component
 
 model_dir = download_component()  # copies from Chrome, returns Path
 ```
@@ -162,7 +162,7 @@ model_dir = download_component()  # copies from Chrome, returns Path
 ### Initialising the OCR engine
 
 ```python
-from screen_ai_wrapper import ScreenAI
+from locro import ScreenAI
 
 ai = ScreenAI()
 ```

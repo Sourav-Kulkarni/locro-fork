@@ -2,7 +2,7 @@
 
 Handles library discovery, model-file callbacks, SkBitmap struct layout,
 and the raw ``PerformOCR`` call.  Everything here is an implementation
-detail -- the public API lives in :mod:`screen_ai_wrapper.ocr`.
+detail -- the public API lives in :mod:`locro.ocr`.
 
 See ``CHROME_SCREEN_AI_DLL.md`` for how the struct layout was determined.
 """
@@ -69,7 +69,7 @@ def find_screen_ai_dir() -> Path:
     """Find the screen-ai component directory.
 
     Checks Chrome's user-data directory first, then falls back to the
-    package's own download directory (populated by ``screen-ai-ocr download``).
+    package's own download directory (populated by ``locro download``).
     """
     # 1. Chrome / Chromium component directory
     for base in chrome_component_bases():
@@ -88,7 +88,7 @@ def find_screen_ai_dir() -> Path:
 
     raise FileNotFoundError(
         "screen-ai component not found.\n"
-        "  Run:  screen-ai-ocr download\n"
+        "  Run:  locro download\n"
         "  Or install Chrome and visit chrome://components to trigger download."
     )
 

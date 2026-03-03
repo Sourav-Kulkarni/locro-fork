@@ -36,16 +36,16 @@ def default_model_dir() -> Path:
     if sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA")
         if local:
-            return Path(local) / "screen_ai_wrapper"
+            return Path(local) / "locro"
     # XDG convention on Linux (and fallback for Windows without LOCALAPPDATA)
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
-        return Path(xdg) / "screen_ai_wrapper"
-    return Path.home() / ".local" / "share" / "screen_ai_wrapper"
+        return Path(xdg) / "locro"
+    return Path.home() / ".local" / "share" / "locro"
 
 
 def default_model_dir_display() -> str:
     """Human-readable string for --help text showing the default model dir."""
     if sys.platform == "win32":
-        return "%LOCALAPPDATA%/screen_ai_wrapper"
-    return "~/.local/share/screen_ai_wrapper"
+        return "%LOCALAPPDATA%/locro"
+    return "~/.local/share/locro"
