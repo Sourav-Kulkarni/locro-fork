@@ -11,11 +11,54 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from ._platform import LIB_NAME, chrome_component_bases
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Chromium stub symbols (Linux only)
+# ---------------------------------------------------------------------------
+# libchromescreenai.so references a handful of Chromium-internal symbols
+# (zlib stubs, threadlogger) that don't exist on the host system.  They are
+# never called during normal OCR, but the dynamic linker needs them resolved.
+# We compile a tiny .so that exports them and preload it with RTLD_GLOBAL.
+
+_STUBS_SOURCE = """\
+#include <stddef.h>
+void *unsupported_gzopen(const char *path, const char *mode) { return NULL; }
+int unsupported_gzread(void *file, void *buf, unsigned len) { return 0; }
+int unsupported_gzclose(void *file) { return 0; }
+void _ZN12threadlogger21EnableThreadedLoggingEi(int x) {}
+"""
+
+_STUBS_NAME = "_chromium_stubs.so"
+_stubs_loaded = False
+
+
+def _ensure_stubs(model_dir: Path) -> None:
+    """Compile (once) and preload the Chromium stub symbols on Linux."""
+    global _stubs_loaded
+    if _stubs_loaded or sys.platform != "linux":
+        return
+
+    stubs_path = model_dir / _STUBS_NAME
+    if not stubs_path.exists():
+        log.info("Compiling Chromium stubs -> %s", stubs_path)
+        subprocess.run(
+            ["cc", "-shared", "-fPIC", "-o", str(stubs_path), "-x", "c", "-"],
+            input=_STUBS_SOURCE.encode(),
+            check=True,
+        )
+
+    log.debug("Preloading %s", stubs_path)
+    ctypes.CDLL(str(stubs_path), mode=os.RTLD_LAZY | ctypes.RTLD_GLOBAL)
+    _stubs_loaded = True
+
 
 # ---------------------------------------------------------------------------
 # Library location
@@ -180,6 +223,8 @@ class ScreenAIDll:
         lib_path = model_dir / LIB_NAME
         if not lib_path.exists():
             raise FileNotFoundError(f"Library not found: {lib_path}")
+
+        _ensure_stubs(model_dir)
 
         log.info("Loading %s", lib_path)
         self._dll = ctypes.CDLL(str(lib_path))
