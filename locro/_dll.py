@@ -94,8 +94,10 @@ def _suppress_native_stderr() -> None:
         os.environ.setdefault(var, "3")
 
     sys.stderr.flush()
-    libc = ctypes.CDLL(None)
-    libc.fflush(None)
+    if sys.platform == "win32":
+        ctypes.cdll.msvcrt.fflush(None)
+    else:
+        ctypes.CDLL(None).fflush(None)
 
     saved_err = os.dup(2)
     devnull_fd = os.open(os.devnull, os.O_WRONLY)
