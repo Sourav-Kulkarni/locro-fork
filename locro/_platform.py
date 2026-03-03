@@ -49,3 +49,11 @@ def default_model_dir_display() -> str:
     if sys.platform == "win32":
         return "%LOCALAPPDATA%/locro"
     return "~/.local/share/locro"
+
+
+PLATFORM_TAG = "windows" if sys.platform == "win32" else "linux"
+
+
+def dropbox_zip_path() -> Path:
+    """Path to the Dropbox zip for the current platform."""
+    return Path.home() / "Dropbox" / "bin" / f"screen-ai-{PLATFORM_TAG}.zip"

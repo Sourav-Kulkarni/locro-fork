@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ._platform import LIB_NAME, chrome_component_bases, default_model_dir
+from ._platform import LIB_NAME, chrome_component_bases, default_model_dir, dropbox_zip_path
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +98,85 @@ def copy_from_chrome(target_dir: Path | None = None) -> Path:
     shutil.copytree(src, dest, dirs_exist_ok=True)
     log.info("Installed screen-ai %s", version)
     return dest
+
+
+# ---------------------------------------------------------------------------
+# Dropbox zip (portable backup / alternative install source)
+# ---------------------------------------------------------------------------
+
+# Files that are compiled locally and should not be included in the zip.
+_EXCLUDE_NAMES = {"_chromium_stubs.so"}
+
+
+def export_to_zip(zip_path: Path | None = None) -> Path:
+    """Package the installed component into a zip for use on other machines.
+
+    By default writes to ``~/Dropbox/bin/screen-ai-{platform}.zip``.
+    Returns the path to the created zip.
+
+    Raises FileNotFoundError if no installed component is found.
+    """
+    src = find_local_model_dir()
+    if src is None:
+        src = _find_chrome_component_dir()
+    if src is None:
+        raise FileNotFoundError(
+            "No installed screen-ai component found to export."
+        )
+
+    dest = zip_path or dropbox_zip_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    version = src.name
+    log.info("Exporting %s -> %s (version %s)", src, dest, version)
+
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(src.rglob("*")):
+            if not file.is_file():
+                continue
+            if file.name in _EXCLUDE_NAMES:
+                continue
+            arcname = f"{version}/{file.relative_to(src)}"
+            zf.write(file, arcname)
+
+    log.info("Exported %s (%.1f MB)", dest, dest.stat().st_size / (1024 * 1024))
+    return dest
+
+
+def install_from_zip(
+    zip_path: Path | None = None, target_dir: Path | None = None,
+) -> Path:
+    """Install the component from a zip file (e.g. from Dropbox).
+
+    Returns the installed version directory.
+    Raises FileNotFoundError if the zip does not exist.
+    """
+    src = zip_path or dropbox_zip_path()
+    if not src.exists():
+        raise FileNotFoundError(f"Zip not found: {src}")
+
+    base = target_dir or get_default_model_dir()
+
+    log.info("Installing from %s ...", src)
+    with zipfile.ZipFile(src) as zf:
+        # Top-level directory inside the zip is the version string.
+        top_dirs = {Path(n).parts[0] for n in zf.namelist() if "/" in n}
+        if len(top_dirs) != 1:
+            raise RuntimeError(
+                f"Expected exactly one top-level directory in zip, got {top_dirs}"
+            )
+        version = top_dirs.pop()
+        version_dir = base / version
+
+        if (version_dir / LIB_NAME).exists():
+            log.info("Already installed at %s", version_dir)
+            return version_dir
+
+        version_dir.mkdir(parents=True, exist_ok=True)
+        zf.extractall(base)
+
+    log.info("Installed screen-ai %s from zip", version)
+    return version_dir
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +324,8 @@ def download_component(target_dir: Path | None = None) -> Path:
     """Install the screen-ai component using the best available method.
 
     1. Copies from Chrome's local directory if available.
-    2. Falls back to Omaha download (may fail due to server restrictions).
+    2. Installs from Dropbox zip if present.
+    3. Falls back to Omaha download (may fail due to server restrictions).
 
     Returns the path to the version directory containing the library.
     """
@@ -253,7 +333,13 @@ def download_component(target_dir: Path | None = None) -> Path:
     try:
         return copy_from_chrome(target_dir)
     except FileNotFoundError:
-        log.info("Chrome component not found locally, trying server download...")
+        log.info("Chrome component not found locally, trying Dropbox zip...")
+
+    # Try Dropbox zip
+    try:
+        return install_from_zip(target_dir=target_dir)
+    except FileNotFoundError:
+        log.info("Dropbox zip not found, trying server download...")
 
     # Fallback: try Omaha
     return download_from_server(target_dir)

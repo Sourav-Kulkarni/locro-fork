@@ -18,6 +18,7 @@ app = typer.Typer(
     name="locro",
     help="OCR documents and images using Chrome's screen-ai library.",
     add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 SUPPORTED_SUFFIXES = {".pdf", *IMAGE_SUFFIXES}
@@ -83,7 +84,7 @@ def ocr(
     pages_spec: Annotated[
         Optional[str],
         typer.Option(
-            "--pages",
+            "-p", "--pages",
             help="Pages to OCR (PDF only).  Examples: 1  1-10  1,3,5  1-5,10-12",
         ),
     ] = None,
@@ -94,7 +95,7 @@ def ocr(
     searchable_pdf: Annotated[
         Optional[Path],
         typer.Option(
-            "--searchable-pdf",
+            "-s", "--searchable-pdf",
             help="Write a searchable PDF with invisible text overlay (PDF input only).",
         ),
     ] = None,
@@ -190,6 +191,44 @@ def download(
         raise typer.Exit(code=1) from None
 
     typer.echo(f"Installed to {result_dir}")
+
+
+# ---------------------------------------------------------------------------
+# export
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def export(
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "-o", "--output",
+            help="Output zip path (default: ~/Dropbox/bin/screen-ai-{platform}.zip).",
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option("-v", "--verbose", help="Verbose / debug logging."),
+    ] = False,
+) -> None:
+    """Export the installed screen-ai component as a zip file.
+
+    Creates a portable zip that can be used as an alternative installation
+    source (e.g. via Dropbox) on machines where ``locro download`` cannot
+    find Chrome's component.
+    """
+    _setup_logging(verbose)
+
+    from ._download import export_to_zip
+
+    try:
+        result = export_to_zip(zip_path=output)
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+
+    typer.echo(f"Exported to {result}")
 
 
 # ---------------------------------------------------------------------------

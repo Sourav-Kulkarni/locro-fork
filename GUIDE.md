@@ -68,6 +68,25 @@ locro download --model-dir /path/to/models
 The wrapper checks Chrome's directory first, then falls back to the
 copied/downloaded location.
 
+### Option C: Install from a zip file (offline / portable)
+
+If you have access to a pre-packaged zip (e.g. shared via Dropbox), `locro
+download` will pick it up automatically from `~/Dropbox/bin/screen-ai-linux.zip`
+(or `screen-ai-windows.zip` on Windows).
+
+To create such a zip from a machine where the component is already installed:
+
+```bash
+locro export
+```
+
+This writes `~/Dropbox/bin/screen-ai-{platform}.zip` by default.  You can
+specify a custom path with `-o`:
+
+```bash
+locro export -o /tmp/screen-ai-linux.zip
+```
+
 ## CLI usage
 
 After installation the `locro` command is available on your PATH.
@@ -96,10 +115,10 @@ all pages.
 ### Select specific pages (PDF only)
 
 ```bash
-locro ocr document.pdf --pages 1          # first page only
-locro ocr document.pdf --pages 1-10       # pages 1 through 10
-locro ocr document.pdf --pages 1,3,5      # pages 1, 3, and 5
-locro ocr document.pdf --pages 1-5,10-12  # ranges and individual pages
+locro ocr document.pdf -p 1          # first page only
+locro ocr document.pdf -p 1-10       # pages 1 through 10
+locro ocr document.pdf -p 1,3,5      # pages 1, 3, and 5
+locro ocr document.pdf -p 1-5,10-12  # ranges and individual pages
 ```
 
 ### Light mode (faster, lower quality)
@@ -113,14 +132,14 @@ Uses a smaller model for faster inference at the cost of some accuracy.
 ### Create a searchable PDF
 
 ```bash
-locro ocr document.pdf --searchable-pdf document_searchable.pdf
+locro ocr document.pdf -s document_searchable.pdf
 ```
 
 The output PDF looks identical to the input but has an invisible text layer
-overlaid, making it selectable and searchable.  Can be combined with `--pages`:
+overlaid, making it selectable and searchable.  Can be combined with `-p`:
 
 ```bash
-locro ocr big.pdf --pages 1-50 --searchable-pdf big_searchable.pdf
+locro ocr big.pdf -p 1-50 -s big_searchable.pdf
 ```
 
 ### Specify an output directory
@@ -147,7 +166,10 @@ locro ocr invoice.pdf --text | grep "Total"
 locro ocr document.pdf -v
 ```
 
-Shows library loading, image resize, and per-page statistics.
+By default, only locro's own INFO messages are shown (library loading, OCR
+progress).  Native library chatter (glog, TFLite, etc.) is suppressed.
+Use `-v` to see everything, including debug-level messages and native
+library output.
 
 ## Library / API usage
 

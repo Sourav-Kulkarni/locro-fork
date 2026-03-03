@@ -61,6 +61,57 @@ def _ensure_stubs(model_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Suppress native library chatter (C++ glog, TFLite, futex, etc.)
+# ---------------------------------------------------------------------------
+
+# The native library uses Google's C++ logging (glog/abseil), TensorFlow
+# Lite logging, and Chromium's own LOG() macros -- all of which write
+# directly to stderr (fd 2), including from background threads.
+#
+# Strategy for quiet mode (no --verbose):
+#   - Set env vars that the native loggers check (GLOG, abseil, TFLite).
+#   - Redirect fd 2 to /dev/null *permanently* and re-point Python's
+#     logging to a saved copy of the original stderr.  This catches
+#     anything the env vars miss (background threads, etc.).
+#
+# In --verbose mode none of this is applied.
+
+_native_suppressed = False
+
+
+def _suppress_native_stderr() -> None:
+    """Permanently redirect fd 2 to /dev/null for native code.
+
+    Python logging is re-pointed to the original stderr so our own
+    INFO messages remain visible.  Call once, before loading the DLL.
+    """
+    global _native_suppressed
+    if _native_suppressed:
+        return
+    _native_suppressed = True
+
+    for var in ("GLOG_minloglevel", "TF_CPP_MIN_LOG_LEVEL", "ABSL_MIN_LOG_LEVEL"):
+        os.environ.setdefault(var, "3")
+
+    sys.stderr.flush()
+    libc = ctypes.CDLL(None)
+    libc.fflush(None)
+
+    saved_err = os.dup(2)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull_fd, 2)
+    os.close(devnull_fd)
+
+    # Give Python logging a file object that writes to the *original*
+    # stderr fd so our own messages still appear.
+    real_stderr = os.fdopen(saved_err, "w", closefd=False)
+    for handler in logging.root.handlers:
+        if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stderr:
+            handler.stream = real_stderr
+    sys.stderr = real_stderr
+
+
+# ---------------------------------------------------------------------------
 # Library location
 # ---------------------------------------------------------------------------
 
@@ -225,6 +276,9 @@ class ScreenAIDll:
             raise FileNotFoundError(f"Library not found: {lib_path}")
 
         _ensure_stubs(model_dir)
+
+        if log.getEffectiveLevel() > logging.DEBUG:
+            _suppress_native_stderr()
 
         log.info("Loading %s", lib_path)
         self._dll = ctypes.CDLL(str(lib_path))
