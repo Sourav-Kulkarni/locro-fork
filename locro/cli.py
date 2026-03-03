@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -131,6 +132,7 @@ def ocr(
         typer.echo("Error: --searchable-pdf requires a PDF input.", err=True)
         raise typer.Exit(code=1)
 
+    t0 = time.monotonic()
     ai = ScreenAI(light_mode=light)
 
     if searchable_pdf:
@@ -149,7 +151,12 @@ def ocr(
             output_dir.mkdir(parents=True, exist_ok=True)
         _write_outputs(result, file, output_dir)
 
-    typer.echo(f"Done. {page_count} page(s), {total_blocks} block(s).")
+    elapsed = time.monotonic() - t0
+    if elapsed >= 60:
+        time_str = f"{elapsed / 60:.1f} minutes"
+    else:
+        time_str = f"{elapsed:.1f} seconds"
+    typer.echo(f"Done. {page_count} page(s), {total_blocks} block(s). Total time: {time_str}.")
 
 
 # ---------------------------------------------------------------------------
