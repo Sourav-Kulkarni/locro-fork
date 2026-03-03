@@ -54,6 +54,18 @@ def default_model_dir_display() -> str:
 PLATFORM_TAG = "windows" if sys.platform == "win32" else "linux"
 
 
+def _find_dropbox_dir() -> Path:
+    """Locate the Dropbox directory, checking common locations."""
+    home_dropbox = Path.home() / "Dropbox"
+    if home_dropbox.is_dir():
+        return home_dropbox
+    if sys.platform == "win32":
+        root_dropbox = Path("C:/Dropbox")
+        if root_dropbox.is_dir():
+            return root_dropbox
+    return home_dropbox  # default even if it doesn't exist yet
+
+
 def dropbox_zip_path() -> Path:
     """Path to the Dropbox zip for the current platform."""
-    return Path.home() / "Dropbox" / "bin" / f"screen-ai-{PLATFORM_TAG}.zip"
+    return _find_dropbox_dir() / "bin" / f"screen-ai-{PLATFORM_TAG}.zip"

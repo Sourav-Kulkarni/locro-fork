@@ -1,5 +1,9 @@
 # locro -- Usage Guide
 
+<p align="center">
+  <img src="locro-logo.png" alt="locro logo" width="200">
+</p>
+
 ## Prerequisites
 
 1. **Windows 10/11 (64-bit)** or **Linux (64-bit x86)**.
@@ -72,7 +76,8 @@ copied/downloaded location.
 
 If you have access to a pre-packaged zip (e.g. shared via Dropbox), `locro
 download` will pick it up automatically from `~/Dropbox/bin/screen-ai-linux.zip`
-(or `screen-ai-windows.zip` on Windows).
+(or `screen-ai-windows.zip` on Windows).  On Windows, if `~/Dropbox` doesn't
+exist, `C:\Dropbox` is checked as a fallback.
 
 To create such a zip from a machine where the component is already installed:
 

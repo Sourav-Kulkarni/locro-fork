@@ -1,5 +1,9 @@
 # locro
 
+<p align="center">
+  <img src="locro-logo.png" alt="locro logo" width="200">
+</p>
+
 Python wrapper for Chrome's built-in **screen-ai** OCR engine.
 Calls the screen-ai shared library directly via ctypes -- no browser needed.
 
