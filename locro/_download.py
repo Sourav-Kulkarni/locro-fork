@@ -196,6 +196,8 @@ def _omaha_platform() -> tuple[str, str]:
     """Return (platform, os_version) for the Omaha request."""
     if sys.platform == "win32":
         return "win", platform.version()
+    if sys.platform == "darwin":
+        return "mac", platform.mac_ver()[0]
     return "linux", platform.release()
 
 

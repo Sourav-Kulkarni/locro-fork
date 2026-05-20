@@ -6,7 +6,7 @@
 
 This is a Python wrapper for Chrome's built-in **screen-ai** OCR engine. This engine is *extremely fast* compared to other alternatives (Tesseract, etc.) and *very* accurate (particularly for extracting text; less so when dealing with complex layouts such as tables and forms). However, it is only available through Chrome/Chromium. The magic of this wrapper is that it allows you to call the `screen-ai` library directly from Python (using ctypes), without having to open browser windows.
 
-It works on **Windows** (`chrome_screen_ai.dll`), **Linux** (`libchromescreenai.so`), and should be easy to modify it to work on MacOS.
+It works on **Windows** (`chrome_screen_ai.dll`), **Linux** (`libchromescreenai.so`), and **macOS** (`libchromescreenai.so`).
 
 Lastly, it supports both PDFs and images (JPG, PNG, WebP, BMP, TIFF, GIF).
 

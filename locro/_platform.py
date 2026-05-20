@@ -11,7 +11,7 @@ from pathlib import Path
 
 if sys.platform == "win32":
     LIB_NAME = "chrome_screen_ai.dll"
-elif sys.platform == "linux":
+elif sys.platform in ("linux", "darwin"):
     LIB_NAME = "libchromescreenai.so"
 else:
     raise RuntimeError(f"Unsupported platform: {sys.platform}")
@@ -23,6 +23,11 @@ def chrome_component_bases() -> list[Path]:
         return [
             Path.home() / "AppData" / "Local" / "Google" / "Chrome"
             / "User Data" / "screen_ai",
+        ]
+    if sys.platform == "darwin":
+        return [
+            Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "screen_ai",
+            Path.home() / "Library" / "Application Support" / "Chromium" / "screen_ai",
         ]
     # Linux: check Google Chrome, then Chromium
     return [
@@ -37,6 +42,8 @@ def default_model_dir() -> Path:
         local = os.environ.get("LOCALAPPDATA")
         if local:
             return Path(local) / "locro"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "locro"
     # XDG convention on Linux (and fallback for Windows without LOCALAPPDATA)
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
@@ -48,10 +55,12 @@ def default_model_dir_display() -> str:
     """Human-readable string for --help text showing the default model dir."""
     if sys.platform == "win32":
         return "%LOCALAPPDATA%/locro"
+    if sys.platform == "darwin":
+        return "~/Library/Application Support/locro"
     return "~/.local/share/locro"
 
 
-PLATFORM_TAG = "windows" if sys.platform == "win32" else "linux"
+PLATFORM_TAG = "windows" if sys.platform == "win32" else ("mac" if sys.platform == "darwin" else "linux")
 
 
 def _find_dropbox_dir() -> Path:
