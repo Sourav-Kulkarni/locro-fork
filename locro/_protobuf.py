@@ -58,7 +58,7 @@ class LineResult:
     """One line from the VisualAnnotation protobuf."""
     __slots__ = (
         "text", "language", "block_id", "paragraph_id", "confidence",
-        "x", "y", "width", "height", "direction", "content_type", "words",
+        "x", "y", "width", "height", "angle", "direction", "content_type", "words",
     )
 
     def __init__(self):
@@ -66,17 +66,19 @@ class LineResult:
         self.block_id = self.paragraph_id = 0
         self.confidence = 0.0
         self.x = self.y = self.width = self.height = 0
+        self.angle = 0.0
         self.direction = self.content_type = 0
         self.words: list[WordResult] = []
 
 
 class WordResult:
-    __slots__ = ("text", "language", "confidence", "x", "y", "width", "height")
+    __slots__ = ("text", "language", "confidence", "x", "y", "width", "height", "angle")
 
     def __init__(self):
         self.text = self.language = ""
         self.confidence = 0.0
         self.x = self.y = self.width = self.height = 0
+        self.angle = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -84,20 +86,22 @@ class WordResult:
 # ---------------------------------------------------------------------------
 
 
-def _parse_rect(data: bytes) -> tuple[int, int, int, int]:
+def _parse_rect(data: bytes) -> tuple[int, int, int, int, float]:
     x = y = w = h = 0
+    angle = 0.0
     for fn, wt, val in _decode_raw(data):
         if fn == 1 and wt == 0: x = val
         elif fn == 2 and wt == 0: y = val
         elif fn == 3 and wt == 0: w = val
         elif fn == 4 and wt == 0: h = val
-    return x, y, w, h
+        elif fn == 5 and wt == 5: angle = val  # clockwise degrees
+    return x, y, w, h, angle
 
 
 def _parse_word(data: bytes) -> WordResult:
     w = WordResult()
     for fn, wt, val in _decode_raw(data):
-        if fn == 2 and wt == 2: w.x, w.y, w.width, w.height = _parse_rect(val)
+        if fn == 2 and wt == 2: w.x, w.y, w.width, w.height, w.angle = _parse_rect(val)
         elif fn == 3 and wt == 2: w.text = val.decode("utf-8", errors="replace")
         elif fn == 5 and wt == 2: w.language = val.decode("utf-8", errors="replace")
         elif fn == 15 and wt == 5: w.confidence = val
@@ -108,7 +112,7 @@ def _parse_line(data: bytes) -> LineResult:
     ln = LineResult()
     for fn, wt, val in _decode_raw(data):
         if fn == 1 and wt == 2: ln.words.append(_parse_word(val))
-        elif fn == 2 and wt == 2: ln.x, ln.y, ln.width, ln.height = _parse_rect(val)
+        elif fn == 2 and wt == 2: ln.x, ln.y, ln.width, ln.height, ln.angle = _parse_rect(val)
         elif fn == 3 and wt == 2: ln.text = val.decode("utf-8", errors="replace")
         elif fn == 4 and wt == 2: ln.language = val.decode("utf-8", errors="replace")
         elif fn == 5 and wt == 0: ln.block_id = val

@@ -11,6 +11,7 @@ class BoundingBox:
     y: float
     width: float
     height: float
+    angle: float = 0.0  # clockwise rotation in degrees (from screen-ai Rect.angle)
 
 
 @dataclass
