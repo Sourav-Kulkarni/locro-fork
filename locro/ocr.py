@@ -225,14 +225,14 @@ def _lines_to_page(
                 OcrWord(
                     text=w.text,
                     confidence=w.confidence or None,
-                    bounding_box=BoundingBox(x=w.x, y=w.y, width=w.width, height=w.height)
+                    bounding_box=BoundingBox(x=w.x, y=w.y, width=w.width, height=w.height, angle=w.angle)
                     if w.width else None,
                 )
                 for w in ln.words
             ]
             ocr_lines.append(OcrLine(
                 text=ln.text, words=words,
-                bounding_box=BoundingBox(x=ln.x, y=ln.y, width=ln.width, height=ln.height)
+                bounding_box=BoundingBox(x=ln.x, y=ln.y, width=ln.width, height=ln.height, angle=ln.angle)
                 if ln.width else None,
             ))
         blocks.append(OcrBlock(block_type="paragraph", lines=ocr_lines))
