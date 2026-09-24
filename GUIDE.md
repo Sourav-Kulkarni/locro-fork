@@ -141,10 +141,43 @@ locro ocr document.pdf -s document_searchable.pdf
 ```
 
 The output PDF looks identical to the input but has an invisible text layer
-overlaid, making it selectable and searchable.  Can be combined with `-p`:
+overlaid, making it selectable and searchable -- including non-Latin scripts
+(Devanagari, Arabic, Cyrillic, ...), which locro renders with a matching
+system font rather than the default Latin-only one so the text layer isn't
+garbled. This also writes the usual `_ocr.txt`/`_ocr.json` pair, so one run
+gives you both. Can be combined with `-p`:
 
 ```bash
 locro ocr big.pdf -p 1-50 -s big_searchable.pdf
+```
+
+### Batch and parallel OCR
+
+Pass multiple files and/or directories as the `files` argument. Directories
+are expanded (non-recursively) to every supported file directly inside them:
+
+```bash
+locro ocr a.pdf b.pdf c.pdf     # explicit list, processed sequentially
+locro ocr ./scans               # every PDF/image directly inside ./scans
+```
+
+Add `-j`/`--jobs` to OCR several files at once:
+
+```bash
+locro ocr ./scans -j 4
+```
+
+Each file is OCR'd in its own subprocess -- the native screen-ai library
+keeps process-global state and isn't safe to share across threads, so `-j`
+gets you real parallelism by running one independent `locro` process per
+file rather than by threading within one.
+
+With multiple input files, `-s`/`--searchable-pdf` is treated as an output
+*directory* rather than a single filename, since one fixed path can't serve
+every input. Each file gets `<name>_searchable.pdf` inside it:
+
+```bash
+locro ocr ./scans -j 4 -s ./scans_searchable -o ./scans_text
 ```
 
 ### Specify an output directory

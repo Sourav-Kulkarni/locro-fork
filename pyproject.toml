@@ -14,6 +14,7 @@ dependencies = [
     "Pillow",
     "PyMuPDF",
     "typer",
+    "tqdm",
 ]
 
 [project.scripts]

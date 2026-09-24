@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from PIL import Image
 
 from ._dll import ScreenAIDll, find_screen_ai_dir
+from ._fonts import FallbackFontFinder
 from ._protobuf import LineResult, parse_visual_annotation
 from .models import BoundingBox, OcrBlock, OcrLine, OcrPage, OcrResult, OcrWord
 
@@ -59,6 +60,7 @@ class ScreenAI:
         file: str | Path,
         *,
         pages: Iterable[int] | None = None,
+        on_page: Callable[[int, int], None] | None = None,
     ) -> OcrResult:
         """OCR a PDF or image file.
 
@@ -66,14 +68,20 @@ class ScreenAI:
             file: Path to a PDF or image.
             pages: For PDFs, 1-based page numbers to OCR.
                    ``None`` means all pages.  Ignored for images.
+            on_page: Optional callback invoked as ``on_page(page_num,
+                     total_pages)`` after each page finishes -- useful for
+                     progress reporting.
 
         Returns:
             Structured :class:`OcrResult`.
         """
         path = Path(file)
         if path.suffix.lower() == ".pdf":
-            return self._ocr_pdf(path, pages=pages)
-        return self._ocr_image_file(path)
+            return self._ocr_pdf(path, pages=pages, on_page=on_page)
+        result = self._ocr_image_file(path)
+        if on_page:
+            on_page(1, 1)
+        return result
 
     def ocr_pil_image(self, img: Image.Image) -> OcrPage:
         """OCR a single PIL Image.  Returns one :class:`OcrPage`."""
@@ -86,6 +94,7 @@ class ScreenAI:
         output_pdf: str | Path,
         *,
         pages: Iterable[int] | None = None,
+        on_page: Callable[[int, int], None] | None = None,
     ) -> OcrResult:
         """OCR a PDF and write a searchable copy with invisible text overlay.
 
@@ -96,6 +105,9 @@ class ScreenAI:
             input_pdf: Source (image-only) PDF.
             output_pdf: Destination path for the searchable PDF.
             pages: 1-based page numbers to OCR.  ``None`` = all.
+            on_page: Optional callback invoked as ``on_page(page_num,
+                     total_pages)`` after each page finishes -- useful for
+                     progress reporting.
 
         Returns:
             The :class:`OcrResult` that was overlaid.
@@ -109,6 +121,7 @@ class ScreenAI:
 
         doc = fitz.open(str(input_pdf))
         page_set = set(pages) if pages is not None else None
+        total = len(page_set) if page_set is not None else len(doc)
         ocr_pages: list[OcrPage] = []
 
         for i in range(len(doc)):
@@ -137,6 +150,8 @@ class ScreenAI:
                 len(ocr_page.blocks),
                 sum(len(b.lines) for b in ocr_page.blocks),
             )
+            if on_page:
+                on_page(len(ocr_pages), total)
 
         doc.save(str(output_pdf), deflate=True)
         doc.close()
@@ -171,7 +186,11 @@ class ScreenAI:
         return OcrResult(pages=[page])
 
     def _ocr_pdf(
-        self, path: Path, *, pages: Iterable[int] | None = None,
+        self,
+        path: Path,
+        *,
+        pages: Iterable[int] | None = None,
+        on_page: Callable[[int, int], None] | None = None,
     ) -> OcrResult:
         try:
             import fitz  # PyMuPDF
@@ -182,6 +201,7 @@ class ScreenAI:
 
         doc = fitz.open(path)
         page_set = set(pages) if pages is not None else None
+        total = len(page_set) if page_set is not None else len(doc)
         ocr_pages: list[OcrPage] = []
 
         for i in range(len(doc)):
@@ -201,6 +221,8 @@ class ScreenAI:
                 len(ocr_page.blocks),
                 sum(len(b.lines) for b in ocr_page.blocks),
             )
+            if on_page:
+                on_page(len(ocr_pages), total)
 
         return OcrResult(pages=ocr_pages)
 
@@ -243,6 +265,9 @@ def _lines_to_page(
     )
 
 
+_fallback_fonts = FallbackFontFinder()
+
+
 def _overlay_text(
     page,  # fitz.Page
     lines: list[LineResult],
@@ -262,9 +287,15 @@ def _overlay_text(
             x1 = (w.x + w.width) * sx
             y1 = (w.y + w.height) * sy
             font_size = max(1.0, (y1 - y0) * 0.8)
+            # The default "helv" font only covers Latin-1; non-Latin scripts
+            # (Devanagari, Arabic, Cyrillic, ...) need a font that actually
+            # has their glyphs, or the invisible text layer becomes garbage.
+            fontname, fontfile = _fallback_fonts.font_for(w.text)
+            kwargs = {"fontname": fontname, "fontfile": fontfile} if fontname else {}
             page.insert_text(
                 fitz.Point(x0, y1 - font_size * 0.1),
                 w.text,
                 fontsize=font_size,
                 render_mode=3,  # invisible
+                **kwargs,
             )

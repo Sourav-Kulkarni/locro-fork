@@ -209,7 +209,10 @@ __marimo__/
 # Project outputs
 *_ocr.txt
 *_ocr.json
+*_searchable.pdf
 output/
+searchable/
+input_pdf/
 
 # Leftover Chrome profiles from UIA testing
 _chrome_profile*/
