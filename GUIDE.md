@@ -180,6 +180,28 @@ every input. Each file gets `<name>_searchable.pdf` inside it:
 locro ocr ./scans -j 4 -s ./scans_searchable -o ./scans_text
 ```
 
+### Speeding up a single large PDF
+
+`-j` also works on a *single* PDF -- with one input file, it shards the
+page range across that many worker processes instead of parallelizing
+across files, then merges the results back into one `_ocr.json`/`_ocr.txt`
+(and one searchable PDF, if `-s` is used):
+
+```bash
+locro ocr mbh_neelakantha_large.pdf -j 8
+```
+
+This combines with `-p` to shard just a subset of pages:
+
+```bash
+locro ocr mbh_neelakantha_large.pdf -p 1-2000 -j 8
+```
+
+Each shard still pays the cost of loading the native OCR library and its
+models once, so this helps most with a handful of workers on a very large
+file (hundreds/thousands of pages) rather than one process per page.
+Not supported together with `--text` (falls back to running sequentially).
+
 ### Specify an output directory
 
 ```bash

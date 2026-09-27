@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -248,8 +249,9 @@ def ocr(
         int,
         typer.Option(
             "-j", "--jobs",
-            help="OCR this many files in parallel (each in its own process). "
-                 "Only takes effect with multiple input files; default is sequential.",
+            help="OCR using this many worker processes. With multiple input files, "
+                 "OCRs several at once. With a single large PDF, shards its pages "
+                 "across workers instead and merges the results. Default is sequential.",
         ),
     ] = 1,
     verbose: Annotated[
@@ -273,6 +275,10 @@ def ocr(
 
     t0 = time.monotonic()
 
+    shard_single_pdf = (
+        not batch and jobs > 1 and resolved[0].suffix.lower() == ".pdf" and not text
+    )
+
     if batch and jobs > 1:
         _run_parallel(
             resolved,
@@ -284,7 +290,26 @@ def ocr(
             jobs=jobs,
             verbose=verbose,
         )
+    elif shard_single_pdf:
+        _run_sharded_pdf(
+            resolved[0],
+            output_dir=output_dir,
+            pages_spec=pages_spec,
+            light=light,
+            searchable_pdf=searchable_pdf,
+            jobs=jobs,
+            verbose=verbose,
+        )
     else:
+        if not batch and jobs > 1:
+            if resolved[0].suffix.lower() != ".pdf":
+                typer.echo("Warning: -j has no effect on a single image file.", err=True)
+            else:
+                typer.echo(
+                    "Warning: -j isn't supported with --text on a single file yet; "
+                    "running sequentially.",
+                    err=True,
+                )
         machine_progress = os.environ.get(_PROGRESS_ENV) == "1"
         pages = _parse_pages(pages_spec) if pages_spec else None
         ai = ScreenAI(light_mode=light)
@@ -437,6 +462,239 @@ def _run_parallel(
     if failed:
         typer.echo(f"\n{failed} of {n} file(s) failed.", err=True)
         raise typer.Exit(code=1)
+
+
+def _split_pages(pages: list[int], jobs: int) -> list[list[int]]:
+    """Split a sorted page list into up to ``jobs`` contiguous, balanced chunks."""
+    n = len(pages)
+    if n == 0:
+        return []
+    jobs = min(jobs, n)
+    base, extra = divmod(n, jobs)
+    chunks: list[list[int]] = []
+    start = 0
+    for i in range(jobs):
+        size = base + (1 if i < extra else 0)
+        chunks.append(pages[start:start + size])
+        start += size
+    return chunks
+
+
+def _pages_to_spec(pages: list[int]) -> str:
+    """Compress a sorted page list into a compact spec, e.g. ``[1,2,3,5] -> "1-3,5"``."""
+    parts: list[str] = []
+    start = prev = pages[0]
+    for p in pages[1:]:
+        if p == prev + 1:
+            prev = p
+            continue
+        parts.append(str(start) if start == prev else f"{start}-{prev}")
+        start = prev = p
+    parts.append(str(start) if start == prev else f"{start}-{prev}")
+    return ",".join(parts)
+
+
+def _merge_searchable_shards(
+    original_pdf: Path,
+    output_pdf: Path,
+    chunks: list[list[int]],
+    shard_pdfs: list[Path],
+) -> None:
+    """Reassemble one searchable PDF from per-shard outputs.
+
+    Each shard's PDF is a full copy of the original with only its own page
+    range overlaid with text. Pages not covered by any shard (possible with
+    a partial ``--pages`` spec) are pulled from the original untouched.
+    Consecutive pages coming from the same source are inserted in a single
+    call rather than one call per page.
+    """
+    import fitz  # PyMuPDF
+
+    page_source: dict[int, int] = {}
+    for shard_idx, chunk in enumerate(chunks):
+        for page_num in chunk:
+            page_source[page_num] = shard_idx
+
+    original = fitz.open(str(original_pdf))
+    shard_docs = [fitz.open(str(p)) for p in shard_pdfs]
+    merged = fitz.open()
+    try:
+        total_pages = len(original)
+        run_start = 1
+        run_source = page_source.get(1)
+        for page_num in range(2, total_pages + 1):
+            source = page_source.get(page_num)
+            if source != run_source:
+                src_doc = original if run_source is None else shard_docs[run_source]
+                merged.insert_pdf(src_doc, from_page=run_start - 1, to_page=page_num - 2)
+                run_start = page_num
+                run_source = source
+        src_doc = original if run_source is None else shard_docs[run_source]
+        merged.insert_pdf(src_doc, from_page=run_start - 1, to_page=total_pages - 1)
+        merged.save(str(output_pdf), deflate=True)
+    finally:
+        merged.close()
+        original.close()
+        for d in shard_docs:
+            d.close()
+
+
+def _run_sharded_pdf(
+    file: Path,
+    *,
+    output_dir: Path | None,
+    pages_spec: Optional[str],
+    light: bool,
+    searchable_pdf: Path | None,
+    jobs: int,
+    verbose: bool,
+) -> None:
+    """OCR a single large PDF by splitting its pages across worker processes.
+
+    This is the single-file analogue of ``_run_parallel``: since one
+    ``ScreenAI`` instance can't be shared across threads/processes, each
+    worker OCRs a contiguous slice of pages (in its own subprocess, writing
+    to a private temp directory), and the results are merged -- in page
+    order -- into the single output the caller asked for.
+    """
+    if pages_spec:
+        all_pages = _parse_pages(pages_spec)
+    else:
+        try:
+            import fitz  # PyMuPDF
+        except ImportError as exc:
+            raise ImportError(
+                "PyMuPDF is required for PDF operations: pip install PyMuPDF"
+            ) from exc
+        with fitz.open(file) as doc:
+            all_pages = list(range(1, len(doc) + 1))
+
+    chunks = _split_pages(all_pages, jobs)
+    n_chunks = len(chunks)
+
+    if n_chunks <= 1:
+        # Too few pages to benefit from sharding -- just run it directly.
+        ai = ScreenAI(light_mode=light)
+        report = _ocr_one(
+            ai, file, output_dir=output_dir, text=False, pages=all_pages or None,
+            searchable_pdf=searchable_pdf,
+        )
+        typer.echo(report)
+        return
+
+    typer.echo(f"OCRing {file.name} ({len(all_pages)} pages) with -j{n_chunks} shard(s)...")
+
+    base = file.stem
+    final_out = output_dir or file.parent
+    final_out.mkdir(parents=True, exist_ok=True)
+
+    show_bars = not verbose and sys.stderr.isatty()
+
+    with tempfile.TemporaryDirectory(prefix="locro_shard_") as tmp:
+        tmp_dir = Path(tmp)
+        shard_dirs = [tmp_dir / f"shard_{i}" for i in range(n_chunks)]
+        shard_pdfs = (
+            [tmp_dir / f"shard_{i}_searchable.pdf" for i in range(n_chunks)]
+            if searchable_pdf else [None] * n_chunks
+        )
+
+        bars: list["tqdm | None"] = (
+            [
+                tqdm(
+                    total=len(chunk), desc=f"{file.name} [{i + 1}/{n_chunks}]",
+                    unit="pg", position=i, leave=True, disable=None,
+                )
+                for i, chunk in enumerate(chunks)
+            ]
+            if show_bars
+            else [None] * n_chunks
+        )
+
+        def run_shard(i: int) -> tuple[int, int, str]:
+            args = _subprocess_args(
+                file, output_dir=shard_dirs[i], text=False,
+                pages_spec=_pages_to_spec(chunks[i]), light=light,
+                searchable_pdf=shard_pdfs[i], verbose=verbose,
+            )
+            env = dict(os.environ)
+            bar = bars[i]
+            if bar is not None:
+                env[_PROGRESS_ENV] = "1"
+
+            proc = subprocess.Popen(
+                args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", bufsize=1, env=env,
+            )
+            kept: list[str] = []
+            assert proc.stdout is not None
+            for raw_line in proc.stdout:
+                line = raw_line.rstrip("\n")
+                if bar is not None and line.startswith(_PROGRESS_PREFIX):
+                    done_str, _, total_str = line[len(_PROGRESS_PREFIX):].strip().partition("/")
+                    try:
+                        bar.n = min(int(done_str), int(total_str))
+                        bar.refresh()
+                    except ValueError:
+                        pass
+                else:
+                    kept.append(line)
+            proc.wait()
+            if bar is not None:
+                bar.n = bar.total
+                bar.refresh()
+            return i, proc.returncode, "\n".join(kept).strip()
+
+        failed: tuple[int, str] | None = None
+        try:
+            with ThreadPoolExecutor(max_workers=n_chunks) as pool:
+                futures = [pool.submit(run_shard, i) for i in range(n_chunks)]
+                for future in as_completed(futures):
+                    i, returncode, output = future.result()
+                    if returncode != 0:
+                        failed = (i, output)
+        finally:
+            for bar in bars:
+                if bar is not None:
+                    bar.close()
+
+        if failed is not None:
+            i, output = failed
+            typer.echo(
+                f"\nShard {i + 1}/{n_chunks} (pages {_pages_to_spec(chunks[i])}) failed.",
+                err=True,
+            )
+            if output:
+                typer.echo(output, err=True)
+            raise typer.Exit(code=1)
+
+        # Merge: concatenate JSON pages and text in shard order. Page numbers
+        # are absolute (set from the source PDF, not renumbered per shard),
+        # and chunks are contiguous slices of a sorted page list, so shard
+        # order already matches final page order; sort defensively anyway.
+        merged_pages: list[dict] = []
+        merged_texts: list[str] = []
+        for i in range(n_chunks):
+            shard_json = shard_dirs[i] / f"{base}_ocr.json"
+            shard_txt = shard_dirs[i] / f"{base}_ocr.txt"
+            merged_pages.extend(json.loads(shard_json.read_text(encoding="utf-8"))["pages"])
+            merged_texts.append(shard_txt.read_text(encoding="utf-8"))
+        merged_pages.sort(key=lambda p: p["page_number"])
+
+        json_path = final_out / f"{base}_ocr.json"
+        txt_path = final_out / f"{base}_ocr.txt"
+        json_path.write_text(
+            json.dumps({"pages": merged_pages}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        txt_path.write_text("\f".join(merged_texts), encoding="utf-8")
+
+        if searchable_pdf:
+            _merge_searchable_shards(file, searchable_pdf, chunks, shard_pdfs)
+            typer.echo(f"  Searchable PDF -> {searchable_pdf}")
+
+    typer.echo(f"  Text -> {txt_path}")
+    typer.echo(f"  JSON -> {json_path}")
+    typer.echo(f"Done. {len(all_pages)} page(s) across {n_chunks} shard(s).")
 
 
 # ---------------------------------------------------------------------------

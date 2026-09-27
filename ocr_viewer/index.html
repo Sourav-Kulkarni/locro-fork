@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OCR Bounding Box Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============ Start / file-load screen ============ -->
+<div id="startScreen">
+  <div class="start-column">
+    <p class="start-kicker">Collation desk</p>
+    <h1>Check the page against what was read from it</h1>
+    <p class="start-sub">Bring in a scanned volume and its recognition record. Word, line, and block boundaries are drawn over the page so you can see exactly where the reading holds up and where it doesn't.</p>
+
+    <div class="start-rule"></div>
+
+    <div class="dropzones">
+      <div class="dropzone" id="pdfDropzone" data-kind="pdf">
+        <input type="file" id="pdfInput" accept="application/pdf" hidden />
+        <div class="dz-mark">I</div>
+        <div class="dz-title">Scanned pages</div>
+        <div class="dz-sub">the PDF &mdash; drop it here, or <span class="dz-browse">browse</span></div>
+        <div class="dz-file" id="pdfFileLabel"></div>
+      </div>
+
+      <div class="dropzone" id="jsonDropzone" data-kind="json">
+        <input type="file" id="jsonInput" accept="application/json" hidden />
+        <div class="dz-mark">II</div>
+        <div class="dz-title">Recognition record</div>
+        <div class="dz-sub">the OCR JSON &mdash; drop it here, or <span class="dz-browse">browse</span></div>
+        <div class="dz-file" id="jsonFileLabel"></div>
+      </div>
+    </div>
+
+    <div id="loadStatus" class="status"></div>
+  </div>
+</div>
+
+<!-- ============ Main viewer layout ============ -->
+<div id="app" class="hidden">
+
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h1>OCR Viewer</h1>
+      <button id="changeFilesBtn" class="link-btn">Change files</button>
+    </div>
+
+    <section class="panel">
+      <h2>Navigate</h2>
+      <div class="row">
+        <label>PDF page</label>
+        <div class="stepper">
+          <button id="pdfPrev" class="icon-btn">&larr;</button>
+          <span id="pdfPageLabel">-</span>
+          <button id="pdfNext" class="icon-btn">&rarr;</button>
+        </div>
+      </div>
+      <div class="row">
+        <label>OCR page</label>
+        <select id="ocrPageSelect"></select>
+      </div>
+      <div class="row">
+        <label>Zoom</label>
+        <input type="range" id="zoom" min="0.4" max="3" step="0.05" value="1.2" />
+        <span class="value-pill" id="zoomLabel">1.20x</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Marks</h2>
+      <div class="box-level-options">
+        <label class="chip-check">
+          <input type="checkbox" id="showBlockBoxes" />
+          <span class="chip-swatch" style="--c:#8a6023"></span> Block boundary
+        </label>
+        <label class="chip-check">
+          <input type="checkbox" id="showLineBoxes" />
+          <span class="chip-swatch" style="--c:#3d5789"></span> Line boundary
+        </label>
+        <label class="chip-check">
+          <input type="checkbox" id="showWordBoxes" checked />
+          <span class="chip-swatch conf-swatch"></span> Recognized word
+        </label>
+      </div>
+      <div class="row checkbox-row">
+        <label><input type="checkbox" id="showText" checked /> Show recognized text</label>
+      </div>
+      <div class="row checkbox-row">
+        <label><input type="checkbox" id="applyRotation" checked /> Follow page skew</label>
+      </div>
+      <div class="row">
+        <label>Flag below</label>
+        <input type="range" id="confThreshold" min="0" max="1" step="0.01" value="0.85" />
+        <span class="value-pill" id="confThresholdLabel">0.85</span>
+      </div>
+      <div class="row checkbox-row">
+        <label><input type="checkbox" id="onlyLowConf" /> Show only flagged words</label>
+      </div>
+      <div class="legend">
+        <span class="swatch" style="background:#4d7c50"></span> confident
+        <span class="swatch" style="background:#a9822c"></span> uncertain
+        <span class="swatch" style="background:#ab3a2c"></span> flagged
+      </div>
+    </section>
+
+    <section class="panel" id="statsPanel">
+      <h2>Page stats</h2>
+      <div id="stats" class="stats">No OCR page loaded.</div>
+    </section>
+
+    <details class="panel advanced">
+      <summary>Alignment</summary>
+      <p class="hint">Page size is read from the JSON automatically. Only adjust these if boxes look misaligned.</p>
+      <div class="row">
+        <label>PDF page = OCR page + </label>
+        <input type="number" id="pageOffset" value="0" step="1" />
+      </div>
+      <div class="row checkbox-row">
+        <label><input type="checkbox" id="linkPages" checked /> Keep pages linked</label>
+      </div>
+      <div class="row">
+        <label>OCR width</label>
+        <input type="number" id="ocrWidth" />
+      </div>
+      <div class="row">
+        <label>OCR height</label>
+        <input type="number" id="ocrHeight" />
+      </div>
+      <div class="row">
+        <label>Offset X</label>
+        <input type="number" id="offsetX" value="0" />
+      </div>
+      <div class="row">
+        <label>Offset Y</label>
+        <input type="number" id="offsetY" value="0" />
+      </div>
+      <div class="row">
+        <button id="autoFit">Auto-fit</button>
+        <button id="resetCalib" class="secondary">Reset</button>
+      </div>
+    </details>
+  </aside>
+
+  <main id="viewer">
+    <div id="canvasWrap">
+      <canvas id="pdfCanvas"></canvas>
+      <canvas id="overlayCanvas"></canvas>
+    </div>
+    <div id="tooltip" class="tooltip hidden"></div>
+  </main>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
