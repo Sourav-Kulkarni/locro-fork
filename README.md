@@ -21,6 +21,16 @@ locro ocr document.pdf     # process a PDF
 locro ocr photo.jpg --text # process an image
 ```
 
+To build searchable PDFs with non-Latin text (e.g. Devanagari), install the
+bundled Noto Sans font from the [fonts/](fonts/) folder (one-time):
+
+- **Windows:** right-click `fonts/NotoSans-VariableFont_wdth,wght.ttf` and choose **Install** (or **Install for all users**).
+- **macOS:** double-click the font file and click **Install Font** in Font Book.
+- **Linux:** copy it to `~/.local/share/fonts/` and run `fc-cache -f`.
+
+Noto Sans covers Latin, Cyrillic, Greek and Devanagari; Arabic, CJK and other
+scripts need their own Noto font (e.g. `NotoSansKR-Regular.ttf` for Korean).
+
 See [GUIDE.md](GUIDE.md) for the full user guide, including installation, CLI, and API documentation.
 
 ## Batch & parallel OCR
@@ -59,6 +69,24 @@ subfolder produced by `locro ocr -o`), and `--output` is where the parsed
 results go. Use `--book <name>` to process a single book. For each book it
 writes `<book>/<book>_lines.csv`, `<book>/<book>_words.json` and
 `<book>/<book>_words_trimmed.json`.
+
+### Building searchable PDFs from parsed output
+
+`make_searchable_pdf.py` takes the parsed `<book>_words.json` files plus the
+original scanned PDFs and writes searchable PDFs, with each word placed as
+invisible text at its bounding box. It works with the output of either
+`docai_parse_ocr.py` or `locro_parse_ocr.py`:
+
+```bash
+python .\make_searchable_pdf.py --scans .\scans --parsed .\parsed_output_docai --output .\searchable_docai
+```
+
+`--scans` is the folder of original `<book>.pdf` files (the file name must
+match the book name), `--parsed` is the parsed output folder (use
+`.\parsed_output_locro` for locro output), and `--output` is where
+`<book>_searchable.pdf` is written. Use `--book <name>` to process a single
+book. Non-Latin text uses the bundled Noto Sans font from [fonts/](fonts/), so
+no font install is needed for this step.
 
 See [CHROME_SCREEN_AI_DLL.md](CHROME_SCREEN_AI_DLL.md) for technical details on
 how the library interface was reverse-engineered.
