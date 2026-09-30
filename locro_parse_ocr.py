@@ -1,6 +1,6 @@
 """
 Parse locro OCR output (one JSON file per book) into per-book CSV
-(line-level) and JSON (word/token-level) outputs.
+(line-level, including normalized line bounding boxes) and JSON (word/token-level) outputs.
 
 Input layout:
     ocr_results/<book_name>_ocr.json
@@ -134,11 +134,17 @@ def process_book(json_file, ocr_results_dir, out_dir):
 
         for line_idx, line in enumerate(lines, start=1):
             line_text = " ".join(line.get("text", "").splitlines())
+            line_bbox = normalized_bbox(line.get("bounding_box"), page_width, page_height) or {}
             csv_rows.append({
                 "book_name": book_name,
                 "page_number": page_number,
                 "line_number": line_idx,
                 "line_data": line_text,
+                "x_min": line_bbox.get("x_min", ""),
+                "y_min": line_bbox.get("y_min", ""),
+                "x_max": line_bbox.get("x_max", ""),
+                "y_max": line_bbox.get("y_max", ""),
+                "angle": line_bbox.get("angle", ""),
             })
 
         for line_idx, line in enumerate(lines, start=1):
@@ -164,7 +170,10 @@ def process_book(json_file, ocr_results_dir, out_dir):
     csv_path = os.path.join(out_dir, f"{book_name}_lines.csv")
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
-            f, fieldnames=["book_name", "page_number", "line_number", "line_data"]
+            f, fieldnames=[
+                "book_name", "page_number", "line_number", "line_data",
+                "x_min", "y_min", "x_max", "y_max", "angle",
+            ],
         )
         writer.writeheader()
         writer.writerows(csv_rows)
