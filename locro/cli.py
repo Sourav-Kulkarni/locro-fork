@@ -130,13 +130,8 @@ def _ocr_one(
     if text:
         lines.append(result.to_text())
     else:
-        if output_dir:
-            output_dir.mkdir(parents=True, exist_ok=True)
-        base = file.stem
-        out = output_dir or file.parent
-        txt_path = out / f"{base}_ocr.txt"
+        txt_path, json_path = _output_paths(file, output_dir)
         txt_path.write_text(result.to_text(), encoding="utf-8")
-        json_path = out / f"{base}_ocr.json"
         json_path.write_text(
             json.dumps(result.to_dict(), indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -148,6 +143,27 @@ def _ocr_one(
     time_str = f"{elapsed / 60:.1f} minutes" if elapsed >= 60 else f"{elapsed:.1f} seconds"
     lines.append(f"Done. {page_count} page(s), {total_blocks} block(s). Total time: {time_str}.")
     return "\n".join(lines)
+
+
+_DONE_PAGES_RE = re.compile(r"^Done\. (\d+) page\(s\)", re.MULTILINE)
+DEFAULT_BATCH_OUTPUT_DIR = Path("ocr_output")
+
+
+def _output_paths(file: Path, output_dir: Path | None) -> tuple[Path, Path]:
+    """Return (txt_path, json_path) for ``file``, creating output subfolders."""
+    base = file.stem
+    if output_dir is None:
+        return file.parent / f"{base}_ocr.txt", file.parent / f"{base}_ocr.json"
+    txt_dir, json_dir = output_dir / "txt", output_dir / "json"
+    txt_dir.mkdir(parents=True, exist_ok=True)
+    json_dir.mkdir(parents=True, exist_ok=True)
+    return txt_dir / f"{base}_ocr.txt", json_dir / f"{base}_ocr.json"
+
+
+def _pages_in_report(report: str) -> int:
+    """Extract the processed-page count from a per-file report."""
+    m = _DONE_PAGES_RE.search(report)
+    return int(m.group(1)) if m else 0
 
 
 def _searchable_pdf_for(searchable_pdf: Path | None, file: Path, *, batch: bool) -> Path | None:
@@ -219,7 +235,12 @@ def ocr(
     ],
     output_dir: Annotated[
         Optional[Path],
-        typer.Option("-o", "--output-dir", help="Output directory (default: same as input)."),
+        typer.Option(
+            "-o", "--output-dir",
+            help="Output directory; .txt files go in <dir>/txt and .json files in "
+                 "<dir>/json (default: ./ocr_output when processing multiple files, "
+                 "else next to the input).",
+        ),
     ] = None,
     text: Annotated[
         bool,
@@ -273,14 +294,18 @@ def ocr(
         for f in files
     ]
 
+    if batch and output_dir is None and not text:
+        output_dir = DEFAULT_BATCH_OUTPUT_DIR
+
     t0 = time.monotonic()
+    total_pages = 0
 
     shard_single_pdf = (
         not batch and jobs > 1 and resolved[0].suffix.lower() == ".pdf" and not text
     )
 
     if batch and jobs > 1:
-        _run_parallel(
+        total_pages = _run_parallel(
             resolved,
             output_dir=output_dir,
             text=text,
@@ -343,11 +368,15 @@ def ocr(
                 if bar is not None:
                     bar.close()
             typer.echo(report)
+            total_pages += _pages_in_report(report)
 
     if batch:
         elapsed = time.monotonic() - t0
         time_str = f"{elapsed / 60:.1f} minutes" if elapsed >= 60 else f"{elapsed:.1f} seconds"
-        typer.echo(f"\nAll {len(resolved)} file(s) done. Total time: {time_str}.")
+        typer.echo(
+            f"\nAll {len(resolved)} file(s) done. {total_pages} page(s) processed. "
+            f"Total time: {time_str}."
+        )
 
 
 def _run_parallel(
@@ -360,7 +389,7 @@ def _run_parallel(
     searchable_pdf: Path | None,
     jobs: int,
     verbose: bool,
-) -> None:
+) -> int:
     """OCR multiple files in parallel, one subprocess per file.
 
     Screen-AI's native library keeps process-global state (loaded model
@@ -435,6 +464,7 @@ def _run_parallel(
 
     completed = 0
     failed = 0
+    total_pages = 0
     try:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             futures = {
@@ -443,6 +473,7 @@ def _run_parallel(
             for future in as_completed(futures):
                 file, returncode, output = future.result()
                 completed += 1
+                total_pages += _pages_in_report(output)
                 write = bars[0].write if show_bars and bars else typer.echo
                 if returncode != 0:
                     failed += 1
@@ -462,6 +493,7 @@ def _run_parallel(
     if failed:
         typer.echo(f"\n{failed} of {n} file(s) failed.", err=True)
         raise typer.Exit(code=1)
+    return total_pages
 
 
 def _split_pages(pages: list[int], jobs: int) -> list[list[int]]:
@@ -584,10 +616,6 @@ def _run_sharded_pdf(
 
     typer.echo(f"OCRing {file.name} ({len(all_pages)} pages) with -j{n_chunks} shard(s)...")
 
-    base = file.stem
-    final_out = output_dir or file.parent
-    final_out.mkdir(parents=True, exist_ok=True)
-
     show_bars = not verbose and sys.stderr.isatty()
 
     with tempfile.TemporaryDirectory(prefix="locro_shard_") as tmp:
@@ -674,14 +702,12 @@ def _run_sharded_pdf(
         merged_pages: list[dict] = []
         merged_texts: list[str] = []
         for i in range(n_chunks):
-            shard_json = shard_dirs[i] / f"{base}_ocr.json"
-            shard_txt = shard_dirs[i] / f"{base}_ocr.txt"
+            shard_txt, shard_json = _output_paths(file, shard_dirs[i])
             merged_pages.extend(json.loads(shard_json.read_text(encoding="utf-8"))["pages"])
             merged_texts.append(shard_txt.read_text(encoding="utf-8"))
         merged_pages.sort(key=lambda p: p["page_number"])
 
-        json_path = final_out / f"{base}_ocr.json"
-        txt_path = final_out / f"{base}_ocr.txt"
+        txt_path, json_path = _output_paths(file, output_dir)
         json_path.write_text(
             json.dumps({"pages": merged_pages}, indent=2, ensure_ascii=False),
             encoding="utf-8",

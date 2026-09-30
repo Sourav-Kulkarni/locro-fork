@@ -213,6 +213,7 @@ __marimo__/
 output/
 searchable/
 input_pdf/
+parsed_output_locro/*
 
 # Leftover Chrome profiles from UIA testing
 _chrome_profile*/

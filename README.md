@@ -34,12 +34,31 @@ locro ocr document.pdf                      # single file
 locro ocr a.pdf b.pdf c.pdf -j 3            # several files, 3 in parallel
 locro ocr ./scans -j 4                      # every PDF/image directly inside a folder
 locro ocr ./scans -j 4 -s ./searchable      # + a searchable PDF per file, named <name>_searchable.pdf
+locro ocr ./scans -j 4 -o ./results -s ./searchable  # custom output: ./results/txt, ./results/json, ./searchable
 ```
 
 `-s`/`--searchable-pdf` also writes the usual `_ocr.txt`/`_ocr.json` pair
 alongside the searchable PDF -- you don't need a separate run for both. With
+multiple input files, output goes to `./ocr_output/txt` and `./ocr_output/json` unless you
+pass `-o <dir>` (which uses the same `txt`/`json` subfolders); a single file without `-o` still writes next to the input. With
 multiple input files it's treated as an output *directory* rather than a
 single filename.
+
+### Generating a word index from OCR output
+
+`locro_parse_ocr.py` turns the per-book `_ocr.json` files into line-level CSVs
+and word-level JSON (with bounding boxes), which is what you need to build a
+word index:
+
+```bash
+python .\locro_parse_ocr.py --ocr-results .\results\json\ --output .\parsed_output_locro
+```
+
+`--ocr-results` points at the folder of `_ocr.json` files (e.g. the `json/`
+subfolder produced by `locro ocr -o`), and `--output` is where the parsed
+results go. Use `--book <name>` to process a single book. For each book it
+writes `<book>/<book>_lines.csv`, `<book>/<book>_words.json` and
+`<book>/<book>_words_trimmed.json`.
 
 See [CHROME_SCREEN_AI_DLL.md](CHROME_SCREEN_AI_DLL.md) for technical details on
 how the library interface was reverse-engineered.
